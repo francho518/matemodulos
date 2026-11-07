@@ -1,0 +1,296 @@
+# Matemódulos · Servidor de ejercicios de matemáticas
+
+Plataforma web **modular** para practicar matemáticas: cada usuario inicia
+sesión, elige un módulo y resuelve ejercicios con corrección automática. Los
+administradores pueden crear temas y ejercicios desde la propia web.
+
+Stack 100 % gratuito para empezar:
+
+- **Next.js 15** (App Router, Server Actions, TypeScript)
+- **Supabase** (PostgreSQL + autenticación con correo y contraseña)
+- **Vercel** o **Netlify** (hosting)
+- **KaTeX** para renderizar fórmulas LaTeX
+- **Tailwind CSS** para los estilos
+
+---
+
+## Funcionalidades
+
+- Registro e inicio de sesión con correo y contraseña.
+- Roles de **estudiante** y **administrador**.
+- Módulos (temas) publicados o en borrador.
+- Ejercicios de **opción múltiple** y **respuesta numérica** con tolerancia.
+- Corrección en el servidor: el navegador nunca recibe la respuesta correcta
+  antes de responder.
+- Progreso por usuario: ejercicios resueltos, porcentaje y precisión.
+- Panel de administración para crear/editar módulos y agregar/eliminar
+  ejercicios.
+- Fórmulas matemáticas con sintaxis LaTeX: `$x^2 + 1$` o `$$...$$`.
+- Seguridad con **Row Level Security (RLS)** en PostgreSQL.
+
+---
+
+## Requisitos
+
+- [Node.js 20 LTS o superior](https://nodejs.org/) (incluye npm).
+- Una cuenta gratuita en [Supabase](https://supabase.com/).
+- Una cuenta gratuita en [Vercel](https://vercel.com/) para publicar.
+- Git (opcional, para desplegar desde GitHub).
+
+---
+
+## Puesta en marcha local
+
+### 1. Crear el proyecto en Supabase
+
+1. Entra en [supabase.com](https://supabase.com/) y crea un proyecto nuevo
+   (elige la región más cercana y guarda la contraseña de la base de datos).
+2. Espera a que termine la provisión.
+
+### 2. Crear las tablas
+
+1. En el panel de Supabase abre **SQL Editor → New query**.
+2. Copia y ejecuta el contenido de [`supabase/schema.sql`](supabase/schema.sql).
+3. Opcionalmente, ejecuta [`supabase/seed.sql`](supabase/seed.sql) para cargar
+   el módulo de ejemplo **Álgebra básica** con 4 ejercicios.
+
+### 3. Obtener las claves
+
+En **Project Settings → API** copia:
+
+- `Project URL`
+- `anon public key`
+
+> **Importante:** usa solo la clave `anon` en el frontend. Nunca publiques la
+> clave `service_role`.
+
+### 4. Configurar las variables de entorno
+
+Crea un archivo `.env.local` en la raíz del proyecto (junto a `package.json`):
+
+```bash
+cp .env.example .env.local
+```
+
+En Windows (PowerShell) puedes crearlo manualmente y pegar:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-clave-anonima-publica
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+`NEXT_PUBLIC_SITE_URL` es opcional, pero ayuda a construir el enlace de
+confirmación de correo.
+
+### 5. Instalar y ejecutar
+
+```bash
+npm install
+npm run dev
+```
+
+Abre <http://localhost:3000>.
+
+### 6. Crear el primer administrador
+
+1. Regístrate en la web con tu correo.
+2. En Supabase ve a **SQL Editor** y ejecuta (cambiando el correo):
+
+```sql
+update public.profiles
+set role = 'admin'
+where id = (
+  select id from auth.users where email = 'tu@correo.com'
+);
+```
+
+3. Cierra sesión y vuelve a entrar. Verás el enlace **Administración** en la
+   cabecera.
+
+### 7. Configurar la autenticación (correo)
+
+En Supabase: **Authentication → URL Configuration**.
+
+Desarrollo local:
+
+- **Site URL:** `http://localhost:3000`
+- **Redirect URLs:** `http://localhost:3000/auth/callback`
+
+Producción (cuando tengas el dominio de Vercel):
+
+- **Site URL:** `https://tu-app.vercel.app`
+- **Redirect URLs:** `https://tu-app.vercel.app/auth/callback`
+
+Por defecto Supabase pide confirmar el correo. Para probar rápido en local
+puedes desactivarlo en **Authentication → Providers → Email → Confirm email**.
+En producción es recomendable dejarlo activado.
+
+---
+
+## Desplegar gratis en Vercel
+
+1. Sube el proyecto a un repositorio de GitHub:
+
+```bash
+git init
+git add .
+git commit -m "Servidor de ejercicios de matemáticas"
+git branch -M main
+git remote add origin https://github.com/TU-USUARIO/TU-REPO.git
+git push -u origin main
+```
+
+2. Entra en [vercel.com](https://vercel.com/), pulsa **Add New → Project** e
+   importa el repositorio.
+3. En **Environment Variables** agrega:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_SITE_URL` (por ejemplo `https://tu-app.vercel.app`)
+4. Pulsa **Deploy**.
+5. Copia el dominio de Vercel y actualiza en Supabase:
+   - **Site URL** y **Redirect URLs** (incluyendo `/auth/callback`).
+6. Vuelve a desplegar si cambiaste variables de entorno.
+
+### Alternativa: desplegar en Netlify
+
+El repositorio ya incluye `netlify.toml` y `.nvmrc`, así que Netlify detecta
+Next.js y usa Node 22 automáticamente.
+
+1. Sube el proyecto a GitHub siguiendo los pasos anteriores.
+2. Entra en [netlify.com](https://www.netlify.com/) y accede con GitHub.
+3. Pulsa **Add new site → Import an existing project**.
+4. Elige **GitHub**, autoriza a Netlify y selecciona el repositorio.
+5. Comprueba la configuración de build:
+   - **Branch to deploy:** `main`
+   - **Build command:** `npm run build`
+   - **Publish directory:** `.next`
+6. En **Environment variables** agrega:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_SITE_URL` con tu URL de Netlify, por ejemplo
+     `https://tu-sitio.netlify.app`
+7. Pulsa **Deploy site**.
+8. En Supabase actualiza **Authentication → URL Configuration**:
+   - **Site URL:** `https://tu-sitio.netlify.app`
+   - **Redirect URLs:** agrega
+     `https://tu-sitio.netlify.app/auth/callback`
+9. Si agregaste las variables después del primer deploy, ve a
+   **Deploys → Trigger deploy → Clear cache and deploy site**.
+
+> Netlify aplica automáticamente su runtime de Next.js. Si por alguna razón no
+> lo detecta, instala el plugin **Next.js Runtime** desde
+> **Plugins → Add plugins**.
+
+### Límites gratuitos (referencia)
+
+- **Vercel Hobby:** suficiente para proyectos personales y educativos.
+- **Netlify Free:** 100 GB de tráfico y 300 minutos de build al mes,
+  aproximadamente. Incluye HTTPS y dominio `*.netlify.app`.
+- **Supabase Free:** base de datos de 500 MB, autenticación y API incluidas.
+  Los proyectos gratuitos se **pausan tras una semana sin actividad**; se
+  reactivan desde el panel de Supabase.
+- Los límites pueden cambiar. Revisa siempre las páginas oficiales de precios.
+
+Alternativas si algún día superas los límites gratuitos: Neon (PostgreSQL),
+Render, Fly.io o Cloudflare Pages/Workers.
+
+---
+
+## Cómo usar el panel de administración
+
+1. Inicia sesión con un usuario administrador.
+2. Ve a **Administración → Nuevo módulo**.
+3. Completa título, descripción, orden y deja marcado **Publicado**.
+4. Guarda. Serás redirigido a la página del módulo.
+5. En **Agregar ejercicio**:
+   - **Opción múltiple:** escribe una opción por línea y el número de la opción
+     correcta (la primera es 1).
+   - **Respuesta numérica:** escribe la respuesta correcta y una tolerancia
+     (por defecto `0.000001`).
+   - Usa `$...$` para fórmulas: `Resuelve $2x + 5 = 13$`.
+   - La explicación se muestra al acertar.
+6. Los estudiantes verán el módulo en **Mis módulos** en cuanto esté publicado.
+7. Para despublicar un tema, edita el módulo y desmarca **Publicado**.
+
+---
+
+## Estructura del proyecto
+
+```text
+math-server/
+├─ supabase/
+│  ├─ schema.sql          # Tablas, roles, RLS y triggers
+│  └─ seed.sql            # Módulo de ejemplo
+├─ src/
+│  ├─ app/
+│  │  ├─ (auth)/          # Login, registro y Server Actions de sesión
+│  │  ├─ admin/           # Panel de administración
+│  │  ├─ auth/callback/   # Confirmación de correo de Supabase
+│  │  ├─ dashboard/       # Panel del estudiante
+│  │  ├─ modules/         # Módulos y corrección de ejercicios
+│  │  ├─ layout.tsx
+│  │  └─ page.tsx         # Landing pública
+│  ├─ components/         # Header, tarjetas de ejercicio, formularios
+│  ├─ lib/                # Cliente Supabase, tipos y utilidades
+│  └─ middleware.ts       # Refresco de sesión y rutas protegidas
+├─ .env.example
+├─ netlify.toml           # Configuración de despliegue en Netlify
+├─ .nvmrc                 # Versión de Node para Netlify
+├─ package.json
+└─ README.md
+```
+
+### Modelo de datos
+
+| Tabla       | Descripción                                              |
+| ----------- | -------------------------------------------------------- |
+| `profiles`  | Nombre y rol (`student` / `admin`) de cada usuario.      |
+| `modules`   | Temas con título, slug, orden y estado de publicación.   |
+| `exercises` | Ejercicios de un módulo, con su respuesta correcta.      |
+| `attempts`  | Intentos de cada usuario; base del progreso y precisión. |
+
+La respuesta correcta vive solo en la base de datos. La corrección se hace en
+un **Server Action** (`src/app/modules/actions.ts`), nunca en el navegador.
+
+---
+
+## Seguridad
+
+- RLS activado en todas las tablas.
+- Los estudiantes solo pueden leer módulos publicados y sus propios intentos.
+- Solo los administradores pueden crear, editar o borrar contenido.
+- Un trigger impide que un estudiante se cambie el rol a `admin`.
+- No se expone la clave `service_role`.
+- Los enlaces de redirección se validan para evitar *open redirects*.
+
+---
+
+## Solución de problemas
+
+| Problema | Solución |
+| --- | --- |
+| `Faltan NEXT_PUBLIC_SUPABASE_URL...` | Crea `.env.local` con las dos variables y reinicia `npm run dev`. |
+| `relation "public.profiles" does not exist` | Ejecuta `supabase/schema.sql` en el SQL Editor. |
+| `new row violates row-level security policy` | El usuario no es admin o el módulo no está publicado. Revisa el rol. |
+| No veo módulos en el panel | Verifica que estén marcados como **Publicados**. |
+| El correo de confirmación lleva a localhost | Actualiza **Site URL** y **Redirect URLs** en Supabase. |
+| Se repite el login o hay un bucle | Revisa que las variables de entorno sean correctas y borra las cookies. |
+| Las fórmulas se ven como texto | Usa `$...$` alrededor de la expresión LaTeX. |
+
+---
+
+## Próximos pasos sugeridos
+
+- Editar ejercicios existentes (hoy se pueden eliminar y volver a crear).
+- Importación masiva desde CSV/JSON.
+- Recuperación de contraseña.
+- Modo examen con tiempo límite y puntuación.
+- Ranking o reportes por grupo/clase.
+- Pistas opcionales antes de mostrar la explicación.
+- Tests automáticos y CI con GitHub Actions.
+
+---
+
+Hecho para aprender y enseñar matemáticas. Si mejoras el proyecto, ¡comparte los
+cambios!
