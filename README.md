@@ -25,6 +25,12 @@ Stack 100 % gratuito para empezar:
 - Progreso por usuario: ejercicios resueltos, porcentaje y precisión.
 - Panel de administración para crear/editar módulos y agregar/eliminar
   ejercicios.
+- **Grupos de estudiantes**: asigna módulos a un grupo y limita su visibilidad
+  a los miembros.
+- **Exportación de notas** de un grupo en CSV compatible con Excel (nota de 0 a
+  10 y porcentaje).
+- **Límites de tiempo** opcionales por módulo y por pregunta, controlados en el
+  servidor.
 - Fórmulas matemáticas con sintaxis LaTeX: `$x^2 + 1$` o `$$...$$`.
 - Seguridad con **Row Level Security (RLS)** en PostgreSQL.
 
@@ -62,6 +68,12 @@ Stack 100 % gratuito para empezar:
 > estudiante, ejecuta una vez
 > [`supabase/migration-student-variants.sql`](supabase/migration-student-variants.sql)
 > antes del seed de factorización.
+>
+> **Si tu base de datos ya existía antes de los grupos y los tiempos**, ejecuta
+> una vez
+> [`supabase/migration-groups-timing.sql`](supabase/migration-groups-timing.sql).
+> Ese archivo agrega grupos, correos, sesiones de tiempo y las políticas de
+> acceso. No borra datos existentes.
 
 ### 3. Obtener las claves
 
@@ -247,6 +259,71 @@ estudiante. Puedes ajustar esos valores desde **Administración → Factorizaci�
 
 ---
 
+## Grupos y exportación de notas
+
+En **Administración → Grupos** puedes crear grupos (por ejemplo, `3.º A`) y:
+
+1. **Agregar estudiantes** ya registrados en la plataforma.
+2. **Asignar módulos** marcando las casillas correspondientes.
+3. **Exportar las notas** del grupo con el botón **Exportar notas (CSV)**.
+
+### Visibilidad de los módulos
+
+- Un módulo **sin grupos asignados** sigue visible para todos los estudiantes.
+- Un módulo **con al menos un grupo asignado** solo lo ven los miembros de esos
+  grupos.
+- Un estudiante puede pertenecer a varios grupos. Verá la unión de los módulos
+  asignados a todos ellos.
+
+### Formato de la exportación
+
+Los archivos `.csv` se abren directamente en Excel (usan punto y coma como
+separador y UTF-8 con BOM para conservar tildes y eñes). Hay dos opciones:
+
+- **Planilla de notas:** una fila por estudiante y columnas de nota y porcentaje
+  para cada módulo, más el promedio.
+- **Detalle por módulo:** una fila por estudiante y módulo con ejercicios
+  asignados, resueltos, nota y porcentaje.
+
+La nota va de **0 a 10** y se calcula sobre la selección personalizada de
+ejercicios de cada estudiante, igual que en el panel del alumno. Un ejercicio
+cuenta como resuelto si tuvo al menos un intento correcto.
+
+---
+
+## Límites de tiempo
+
+En el formulario de cada módulo puedes definir dos límites independientes:
+
+- **Tiempo máximo del módulo (minutos):** el reloj empieza la primera vez que el
+  estudiante abre el módulo y no se reinicia al recargar la página.
+- **Tiempo máximo por pregunta (segundos):** cada pregunta empieza a contar
+  cuando se muestra y se cierra al agotarse el tiempo.
+
+Deja el campo vacío para no aplicar ese límite. Si un módulo tiene cualquier
+límite activo, el estudiante lo recorre **una pregunta a la vez** con
+contadores visibles.
+
+La validación se hace en el servidor: una respuesta enviada después del plazo se
+rechaza y la pregunta se registra como **tiempo agotado** (intento incorrecto).
+El contador del navegador es solo informativo; no se puede burlar recargando la
+página.
+
+Para **reiniciar el tiempo** de un estudiante en un módulo, un administrador
+puede borrar su fila en `module_sessions` desde el SQL Editor:
+
+```sql
+delete from public.module_sessions
+where user_id = (
+  select id from auth.users where email = 'estudiante@correo.com'
+)
+and module_id = (
+  select id from public.modules where slug = 'factorizacion'
+);
+```
+
+---
+
 ## Módulo de Factorización
 
 El archivo [`supabase/seed-factorizacion.sql`](supabase/seed-factorizacion.sql)
@@ -272,7 +349,8 @@ math-server/
 │  ├─ schema.sql          # Tablas, roles, RLS y triggers
 │  ├─ seed.sql            # Módulo de ejemplo Álgebra básica
 │  ├─ seed-factorizacion.sql  # Módulo Factorización con variantes
-│  └─ migration-student-variants.sql  # Columnas para variantes
+│  ├─ migration-student-variants.sql  # Columnas para variantes
+│  └─ migration-groups-timing.sql     # Grupos, notas y tiempos
 ├─ src/
 │  ├─ app/
 │  │  ├─ (auth)/          # Login, registro y Server Actions de sesión
@@ -294,12 +372,17 @@ math-server/
 
 ### Modelo de datos
 
-| Tabla       | Descripción                                              |
-| ----------- | -------------------------------------------------------- |
-| `profiles`  | Nombre y rol (`student` / `admin`) de cada usuario.      |
-| `modules`   | Temas con título, slug, orden y estado de publicación.   |
-| `exercises` | Ejercicios de un módulo, con su respuesta correcta.      |
-| `attempts`  | Intentos de cada usuario; base del progreso y precisión. |
+| Tabla               | Descripción                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| `profiles`          | Nombre, correo y rol (`student` / `admin`) de cada usuario.    |
+| `modules`           | Temas, variantes y límites de tiempo.                          |
+| `exercises`         | Ejercicios de un módulo, con su respuesta correcta.            |
+| `attempts`          | Intentos de cada usuario; base del progreso y las notas.       |
+| `groups`            | Grupos de estudiantes.                                         |
+| `group_members`     | Estudiantes que pertenecen a cada grupo.                       |
+| `group_modules`     | Módulos asignados a cada grupo (controlan la visibilidad).     |
+| `module_sessions`   | Reloj del módulo por estudiante (inicio y vencimiento).        |
+| `question_sessions` | Reloj de cada pregunta y cierre por tiempo agotado.            |
 
 La respuesta correcta vive solo en la base de datos. La corrección se hace en
 un **Server Action** (`src/app/modules/actions.ts`), nunca en el navegador.
@@ -309,8 +392,11 @@ un **Server Action** (`src/app/modules/actions.ts`), nunca en el navegador.
 ## Seguridad
 
 - RLS activado en todas las tablas.
-- Los estudiantes solo pueden leer módulos publicados y sus propios intentos.
-- Solo los administradores pueden crear, editar o borrar contenido.
+- Los estudiantes solo pueden leer los módulos publicados a los que tienen
+  acceso y sus propios intentos.
+- Los módulos asignados a un grupo solo son visibles para sus miembros.
+- Solo los administradores pueden crear, editar o borrar contenido, grupos y
+  asignaciones.
 - Un trigger impide que un estudiante se cambie el rol a `admin`.
 - No se expone la clave `service_role`.
 - Los enlaces de redirección se validan para evitar *open redirects*.
@@ -334,10 +420,10 @@ un **Server Action** (`src/app/modules/actions.ts`), nunca en el navegador.
 ## Próximos pasos sugeridos
 
 - Editar ejercicios existentes (hoy se pueden eliminar y volver a crear).
-- Importación masiva desde CSV/JSON.
+- Importación masiva de estudiantes y ejercicios desde CSV/JSON.
 - Recuperación de contraseña.
-- Modo examen con tiempo límite y puntuación.
-- Ranking o reportes por grupo/clase.
+- Exportación real `.xlsx` con varias hojas (hoy se entrega CSV compatible).
+- Ranking o reportes históricos por grupo.
 - Pistas opcionales antes de mostrar la explicación.
 - Tests automáticos y CI con GitHub Actions.
 

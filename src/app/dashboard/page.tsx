@@ -25,7 +25,7 @@ export default async function DashboardPage() {
     await Promise.all([
       supabase
         .from("profiles")
-        .select("id, full_name, role")
+        .select("id, full_name, email, role")
         .eq("id", user.id)
         .single(),
       supabase
@@ -207,6 +207,22 @@ export default async function DashboardPage() {
                     <p className="mt-1 line-clamp-2 text-sm text-slate-600">
                       {module.description ?? "Sin descripción."}
                     </p>
+
+                    {(module.module_time_limit_minutes ||
+                      module.question_time_limit_seconds) && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {module.module_time_limit_minutes ? (
+                          <span className="badge bg-amber-50 text-amber-700">
+                            ⏱ {module.module_time_limit_minutes} min
+                          </span>
+                        ) : null}
+                        {module.question_time_limit_seconds ? (
+                          <span className="badge bg-amber-50 text-amber-700">
+                            ⏱ {module.question_time_limit_seconds} s/pregunta
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
 
                   <span

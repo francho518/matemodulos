@@ -118,6 +118,12 @@ export function ExerciseCard({ exercise, index, solved }: Props) {
         </div>
       )}
 
+      {state.status === "expired" && (
+        <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          {state.message}
+        </div>
+      )}
+
       {state.status === "error" && (
         <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {state.message}

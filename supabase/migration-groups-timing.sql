@@ -49,6 +49,30 @@ begin
 end;
 $$;
 
+-- El correo se usa para exportar notas. Un estudiante no puede cambiarlo
+-- desde la aplicación; un administrador o el SQL Editor sí pueden.
+create or replace function public.protect_profile_email()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.email is distinct from old.email
+     and auth.uid() is not null
+     and not public.is_admin() then
+    new.email := old.email;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_profile_email on public.profiles;
+create trigger protect_profile_email
+  before update on public.profiles
+  for each row execute function public.protect_profile_email();
+
 -- ------------------------------------------------------------
 -- 2. LÍMITES DE TIEMPO EN LOS MÓDULOS
 -- ------------------------------------------------------------

@@ -69,6 +69,12 @@ export default async function AdminLayout({
         >
           Nuevo módulo
         </Link>
+        <Link
+          href="/admin/groups"
+          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-500 transition hover:text-slate-800"
+        >
+          Grupos
+        </Link>
       </nav>
 
       <div className="mt-8">{children}</div>

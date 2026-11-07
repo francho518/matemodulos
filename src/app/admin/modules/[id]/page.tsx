@@ -98,6 +98,24 @@ export default async function EditModulePage({ params, searchParams }: Props) {
                     : "Cada estudiante recibe todos los ejercicios en un orden distinto."
                   : "Todos los estudiantes ven los mismos ejercicios en el mismo orden."}
               </p>
+              <p className="mt-1 text-sm text-slate-500">
+                {module.module_time_limit_minutes
+                  ? `Tiempo máximo del módulo: ${module.module_time_limit_minutes} minutos.`
+                  : "Sin límite de tiempo para el módulo."}{" "}
+                {module.question_time_limit_seconds
+                  ? `Tiempo máximo por pregunta: ${module.question_time_limit_seconds} segundos.`
+                  : "Sin límite de tiempo por pregunta."}
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                Para limitar este módulo a ciertos grupos, asígnalo desde{" "}
+                <Link
+                  href="/admin/groups"
+                  className="font-medium text-indigo-600 hover:text-indigo-700"
+                >
+                  Grupos
+                </Link>
+                .
+              </p>
             </div>
 
             {module.is_published && (

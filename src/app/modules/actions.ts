@@ -65,9 +65,42 @@ async function ensureModuleSession(
     .eq("module_id", moduleId)
     .maybeSingle();
 
-  if (existing) return existing as ModuleSessionRow;
-
   const minutes = positiveLimit(moduleLimitMinutes);
+
+  if (existing) {
+    const session = existing as ModuleSessionRow;
+
+    // Si el administrador acaba de activar o quitar el límite del
+    // módulo, ajustamos la sesión existente.
+    if (minutes && !session.expires_at) {
+      const { data: updated } = await supabase
+        .from("module_sessions")
+        .update({
+          expires_at: new Date(
+            Date.now() + minutes * 60_000,
+          ).toISOString(),
+        })
+        .eq("id", session.id)
+        .select(moduleSessionColumns)
+        .single();
+
+      return (updated as ModuleSessionRow | null) ?? session;
+    }
+
+    if (!minutes && session.expires_at) {
+      const { data: updated } = await supabase
+        .from("module_sessions")
+        .update({ expires_at: null })
+        .eq("id", session.id)
+        .select(moduleSessionColumns)
+        .single();
+
+      return (updated as ModuleSessionRow | null) ?? session;
+    }
+
+    return session;
+  }
+
   const expiresAt = minutes
     ? new Date(Date.now() + minutes * 60_000).toISOString()
     : null;
@@ -108,9 +141,42 @@ async function ensureQuestionSession(
     .eq("exercise_id", exerciseId)
     .maybeSingle();
 
-  if (existing) return existing as QuestionSessionRow;
-
   const seconds = positiveLimit(limitSeconds);
+
+  if (existing) {
+    const session = existing as QuestionSessionRow;
+
+    // Si el administrador activa o quita el límite por pregunta
+    // mientras la pregunta está abierta, ajustamos su sesión.
+    if (seconds && !session.expires_at && !session.submitted_at) {
+      const { data: updated } = await supabase
+        .from("question_sessions")
+        .update({
+          expires_at: new Date(
+            Date.now() + seconds * 1_000,
+          ).toISOString(),
+        })
+        .eq("id", session.id)
+        .select(questionSessionColumns)
+        .single();
+
+      return (updated as QuestionSessionRow | null) ?? session;
+    }
+
+    if (!seconds && session.expires_at) {
+      const { data: updated } = await supabase
+        .from("question_sessions")
+        .update({ expires_at: null })
+        .eq("id", session.id)
+        .select(questionSessionColumns)
+        .single();
+
+      return (updated as QuestionSessionRow | null) ?? session;
+    }
+
+    return session;
+  }
+
   const expiresAt = seconds
     ? new Date(Date.now() + seconds * 1_000).toISOString()
     : null;

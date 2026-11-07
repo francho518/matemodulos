@@ -27,7 +27,7 @@ export default async function AdminPage({ searchParams }: Props) {
   const { data } = await supabase
     .from("modules")
     .select(
-      "id, title, slug, description, order_index, is_published, randomize_exercises, exercises_per_student, created_at, exercises(count)",
+      "id, title, slug, description, order_index, is_published, randomize_exercises, exercises_per_student, module_time_limit_minutes, question_time_limit_seconds, created_at, exercises(count)",
     )
     .order("order_index", { ascending: true })
     .order("created_at", { ascending: true });
@@ -107,6 +107,18 @@ export default async function AdminPage({ searchParams }: Props) {
                           : "Variantes"}
                       </span>
                     )}
+
+                    {module.module_time_limit_minutes ? (
+                      <span className="badge bg-amber-100 text-amber-700">
+                        ⏱ {module.module_time_limit_minutes} min
+                      </span>
+                    ) : null}
+
+                    {module.question_time_limit_seconds ? (
+                      <span className="badge bg-amber-100 text-amber-700">
+                        ⏱ {module.question_time_limit_seconds} s/pregunta
+                      </span>
+                    ) : null}
                   </div>
 
                   <p className="mt-1 truncate text-sm text-slate-500">

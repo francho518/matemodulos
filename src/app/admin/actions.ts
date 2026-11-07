@@ -62,6 +62,8 @@ export async function saveModuleAction(
   const isPublished = formData.get("is_published") === "on";
   const randomizeExercises = formData.get("randomize_exercises") === "on";
   const perStudentRaw = getString(formData, "exercises_per_student");
+  const moduleTimeRaw = getString(formData, "module_time_limit_minutes");
+  const questionTimeRaw = getString(formData, "question_time_limit_seconds");
 
   if (title.length < 3) {
     return { error: "El título debe tener al menos 3 caracteres." };
@@ -95,6 +97,32 @@ export async function saveModuleAction(
     };
   }
 
+  const moduleTimeLimit =
+    moduleTimeRaw === "" ? null : Number(moduleTimeRaw);
+
+  if (
+    moduleTimeLimit !== null &&
+    (!Number.isInteger(moduleTimeLimit) || moduleTimeLimit <= 0)
+  ) {
+    return {
+      error:
+        "El tiempo máximo del módulo debe ser un número entero de minutos mayor que 0, o dejarse vacío.",
+    };
+  }
+
+  const questionTimeLimit =
+    questionTimeRaw === "" ? null : Number(questionTimeRaw);
+
+  if (
+    questionTimeLimit !== null &&
+    (!Number.isInteger(questionTimeLimit) || questionTimeLimit <= 0)
+  ) {
+    return {
+      error:
+        "El tiempo máximo por pregunta debe ser un número entero de segundos mayor que 0, o dejarse vacío.",
+    };
+  }
+
   const payload = {
     title,
     slug,
@@ -103,6 +131,8 @@ export async function saveModuleAction(
     is_published: isPublished,
     randomize_exercises: randomizeExercises,
     exercises_per_student: exercisesPerStudent,
+    module_time_limit_minutes: moduleTimeLimit,
+    question_time_limit_seconds: questionTimeLimit,
   };
 
   if (id) {

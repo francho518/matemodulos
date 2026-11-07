@@ -4,8 +4,15 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { percentage } from "@/lib/utils";
 import { selectExercisesForStudent } from "@/lib/exercise-selection";
-import type { AttemptRow, ModuleRow, PublicExercise } from "@/lib/types";
+import type {
+  AttemptRow,
+  ModuleRow,
+  ModuleSessionRow,
+  PublicExercise,
+  QuestionSessionRow,
+} from "@/lib/types";
 import { ExerciseCard } from "@/components/exercise-card";
+import { TimedRunner } from "@/components/timed-runner";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -88,6 +95,37 @@ export default async function ModulePage({ params }: Props) {
 
   const progress = percentage(solvedIds.size, exercises.length);
 
+  const hasTimeLimit =
+    Number(module.module_time_limit_minutes) > 0 ||
+    Number(module.question_time_limit_seconds) > 0;
+
+  let moduleSession: ModuleSessionRow | null = null;
+  let questionSessions: QuestionSessionRow[] = [];
+
+  if (hasTimeLimit) {
+    const { data: sessionData } = await supabase
+      .from("module_sessions")
+      .select("id, user_id, module_id, started_at, expires_at, completed_at")
+      .eq("user_id", user.id)
+      .eq("module_id", module.id)
+      .maybeSingle();
+
+    moduleSession = (sessionData as ModuleSessionRow | null) ?? null;
+
+    if (moduleSession) {
+      const { data: questionData } = await supabase
+        .from("question_sessions")
+        .select(
+          "id, module_session_id, exercise_id, started_at, expires_at, submitted_at",
+        )
+        .eq("module_session_id", moduleSession.id);
+
+      questionSessions = (questionData ?? []) as QuestionSessionRow[];
+    }
+  }
+
+  const serverNow = new Date().toISOString();
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
       <Link
@@ -117,6 +155,21 @@ export default async function ModulePage({ params }: Props) {
                   ? `Tu selección personalizada: ${exercises.length} de ${allExercises.length} ejercicios`
                   : "Orden personalizado para ti"}
               </p>
+            )}
+
+            {hasTimeLimit && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {Number(module.module_time_limit_minutes) > 0 && (
+                  <span className="badge bg-amber-50 text-amber-700">
+                    ⏱ Módulo: {module.module_time_limit_minutes} min
+                  </span>
+                )}
+                {Number(module.question_time_limit_seconds) > 0 && (
+                  <span className="badge bg-amber-50 text-amber-700">
+                    ⏱ Por pregunta: {module.question_time_limit_seconds} s
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
@@ -150,6 +203,21 @@ export default async function ModulePage({ params }: Props) {
           <div className="card p-10 text-center text-slate-500">
             Este módulo todavía no tiene ejercicios.
           </div>
+        ) : hasTimeLimit ? (
+          <TimedRunner
+            moduleId={module.id}
+            exercises={exercises}
+            solvedIds={Array.from(solvedIds)}
+            moduleTimeLimitMinutes={module.module_time_limit_minutes}
+            questionTimeLimitSeconds={module.question_time_limit_seconds}
+            initialModuleExpiresAt={moduleSession?.expires_at ?? null}
+            initialQuestionSessions={questionSessions.map((session) => ({
+              exerciseId: session.exercise_id,
+              expiresAt: session.expires_at,
+              submittedAt: session.submitted_at,
+            }))}
+            serverNow={serverNow}
+          />
         ) : (
           exercises.map((exercise, index) => (
             <ExerciseCard
@@ -162,7 +230,7 @@ export default async function ModulePage({ params }: Props) {
         )}
       </div>
 
-      {progress === 100 && exercises.length > 0 && (
+      {!hasTimeLimit && progress === 100 && exercises.length > 0 && (
         <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center">
           <p className="text-lg font-bold text-emerald-800">
             ¡Módulo completado! 🎉

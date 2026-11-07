@@ -90,6 +90,46 @@ export function ModuleForm({ module }: Props) {
           </p>
         </div>
 
+        <div>
+          <label htmlFor="module_time_limit_minutes" className="label">
+            Tiempo máximo del módulo (minutos)
+          </label>
+          <input
+            id="module_time_limit_minutes"
+            name="module_time_limit_minutes"
+            type="number"
+            min={1}
+            step={1}
+            defaultValue={module?.module_time_limit_minutes ?? ""}
+            className="input"
+            placeholder="Sin límite"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            El reloj empieza la primera vez que el estudiante abre el módulo.
+            Déjalo vacío para no limitar el tiempo.
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="question_time_limit_seconds" className="label">
+            Tiempo máximo por pregunta (segundos)
+          </label>
+          <input
+            id="question_time_limit_seconds"
+            name="question_time_limit_seconds"
+            type="number"
+            min={1}
+            step={1}
+            defaultValue={module?.question_time_limit_seconds ?? ""}
+            className="input"
+            placeholder="Sin límite"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Cada pregunta se cierra al agotarse su tiempo. Déjalo vacío para no
+            limitar cada pregunta.
+          </p>
+        </div>
+
         <div className="flex items-center">
           <label className="flex w-full items-center gap-3 rounded-xl border border-slate-200 p-4">
             <input
