@@ -71,6 +71,42 @@ export function ModuleForm({ module }: Props) {
           </p>
         </div>
 
+        <div>
+          <label htmlFor="exercises_per_student" className="label">
+            Ejercicios por estudiante
+          </label>
+          <input
+            id="exercises_per_student"
+            name="exercises_per_student"
+            type="number"
+            min={0}
+            step={1}
+            defaultValue={module?.exercises_per_student ?? 0}
+            className="input"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            0 = todos los ejercicios. Si hay más en el banco, se seleccionan al
+            azar para cada estudiante.
+          </p>
+        </div>
+
+        <div className="flex items-center">
+          <label className="flex w-full items-center gap-3 rounded-xl border border-slate-200 p-4">
+            <input
+              type="checkbox"
+              name="randomize_exercises"
+              defaultChecked={module?.randomize_exercises ?? false}
+              className="h-4 w-4 shrink-0 accent-indigo-600"
+            />
+            <span className="text-sm text-slate-700">
+              <span className="font-semibold text-slate-900">
+                Variantes por estudiante
+              </span>{" "}
+              · cada alumno recibe una combinación y orden distintos
+            </span>
+          </label>
+        </div>
+
         <div className="sm:col-span-2">
           <label htmlFor="description" className="label">
             Descripción

@@ -91,6 +91,13 @@ export default async function EditModulePage({ params, searchParams }: Props) {
                   ? "Este módulo está publicado y visible para los estudiantes."
                   : "Este módulo está en borrador y no es visible para los estudiantes."}
               </p>
+              <p className="mt-1 text-sm text-slate-500">
+                {module.randomize_exercises
+                  ? module.exercises_per_student > 0
+                    ? `Cada estudiante recibe ${module.exercises_per_student} ejercicios seleccionados al azar.`
+                    : "Cada estudiante recibe todos los ejercicios en un orden distinto."
+                  : "Todos los estudiantes ven los mismos ejercicios en el mismo orden."}
+              </p>
             </div>
 
             {module.is_published && (

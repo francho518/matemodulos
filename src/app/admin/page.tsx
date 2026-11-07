@@ -27,7 +27,7 @@ export default async function AdminPage({ searchParams }: Props) {
   const { data } = await supabase
     .from("modules")
     .select(
-      "id, title, slug, description, order_index, is_published, created_at, exercises(count)",
+      "id, title, slug, description, order_index, is_published, randomize_exercises, exercises_per_student, created_at, exercises(count)",
     )
     .order("order_index", { ascending: true })
     .order("created_at", { ascending: true });
@@ -99,6 +99,14 @@ export default async function AdminPage({ searchParams }: Props) {
                     >
                       {module.is_published ? "Publicado" : "Borrador"}
                     </span>
+
+                    {module.randomize_exercises && (
+                      <span className="badge bg-indigo-100 text-indigo-700">
+                        {module.exercises_per_student > 0
+                          ? `${module.exercises_per_student} por estudiante`
+                          : "Variantes"}
+                      </span>
+                    )}
                   </div>
 
                   <p className="mt-1 truncate text-sm text-slate-500">

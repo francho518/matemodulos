@@ -7,6 +7,10 @@ export type ModuleRow = {
   description: string | null;
   order_index: number;
   is_published: boolean;
+  randomize_exercises: boolean;
+  exercises_per_student: number;
+  module_time_limit_minutes: number | null;
+  question_time_limit_seconds: number | null;
   created_at: string;
 };
 
@@ -35,5 +39,31 @@ export type AttemptRow = {
 export type ProfileRow = {
   id: string;
   full_name: string | null;
+  email: string | null;
   role: "student" | "admin";
+};
+
+export type GroupRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+};
+
+export type ModuleSessionRow = {
+  id: string;
+  user_id: string;
+  module_id: string;
+  started_at: string;
+  expires_at: string | null;
+  completed_at: string | null;
+};
+
+export type QuestionSessionRow = {
+  id: string;
+  module_session_id: string;
+  exercise_id: string;
+  started_at: string;
+  expires_at: string | null;
+  submitted_at: string | null;
 };

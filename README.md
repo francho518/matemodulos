@@ -53,6 +53,15 @@ Stack 100 % gratuito para empezar:
 2. Copia y ejecuta el contenido de [`supabase/schema.sql`](supabase/schema.sql).
 3. Opcionalmente, ejecuta [`supabase/seed.sql`](supabase/seed.sql) para cargar
    el módulo de ejemplo **Álgebra básica** con 4 ejercicios.
+4. Opcionalmente, ejecuta
+   [`supabase/seed-factorizacion.sql`](supabase/seed-factorizacion.sql) para
+   cargar el módulo **Factorización** con 14 ejercicios y variantes por
+   estudiante.
+
+> **Si ya tenías la base de datos creada** antes de las variantes por
+> estudiante, ejecuta una vez
+> [`supabase/migration-student-variants.sql`](supabase/migration-student-variants.sql)
+> antes del seed de factorización.
 
 ### 3. Obtener las claves
 
@@ -215,13 +224,55 @@ Render, Fly.io o Cloudflare Pages/Workers.
 
 ---
 
+## Variantes de ejercicios por estudiante
+
+En el formulario de un módulo puedes activar **Variantes por estudiante** y
+definir cuántos **Ejercicios por estudiante** verá cada alumno:
+
+- `0` = todos los ejercicios del módulo.
+- Un número mayor que `0` = se seleccionan al azar esa cantidad del banco.
+- Si el módulo tiene más ejercicios que el límite, cada estudiante recibe una
+  combinación distinta.
+- La combinación es **estable**: el mismo estudiante ve siempre los mismos
+  ejercicios y en el mismo orden, aunque cierre sesión o cambie de dispositivo.
+- El progreso y el porcentaje de completado se calculan solo sobre los
+  ejercicios asignados a ese estudiante.
+
+La selección se genera de forma determinista a partir del ID del usuario y del
+módulo, sin necesidad de tablas adicionales. Si editas el banco de ejercicios o
+cambias la cantidad por estudiante, las combinaciones pueden cambiar.
+
+El módulo **Factorización** viene configurado con 14 ejercicios y 6 por
+estudiante. Puedes ajustar esos valores desde **Administración → Factorización**.
+
+---
+
+## Módulo de Factorización
+
+El archivo [`supabase/seed-factorizacion.sql`](supabase/seed-factorizacion.sql)
+crea el tema **Factorización** con ejercicios de:
+
+- Factor común.
+- Diferencia de cuadrados.
+- Trinomios cuadrados perfectos.
+- Trinomios de la forma `x² + bx + c`.
+- Suma y diferencia de cubos.
+- Factorización por agrupación.
+
+Incluye 12 ejercicios de opción múltiple y 2 numéricos. Los estudiantes reciben
+6 ejercicios distintos cada uno.
+
+---
+
 ## Estructura del proyecto
 
 ```text
 math-server/
 ├─ supabase/
 │  ├─ schema.sql          # Tablas, roles, RLS y triggers
-│  └─ seed.sql            # Módulo de ejemplo
+│  ├─ seed.sql            # Módulo de ejemplo Álgebra básica
+│  ├─ seed-factorizacion.sql  # Módulo Factorización con variantes
+│  └─ migration-student-variants.sql  # Columnas para variantes
 ├─ src/
 │  ├─ app/
 │  │  ├─ (auth)/          # Login, registro y Server Actions de sesión
@@ -232,7 +283,7 @@ math-server/
 │  │  ├─ layout.tsx
 │  │  └─ page.tsx         # Landing pública
 │  ├─ components/         # Header, tarjetas de ejercicio, formularios
-│  ├─ lib/                # Cliente Supabase, tipos y utilidades
+│  ├─ lib/                # Cliente Supabase, tipos, utilidades y selección
 │  └─ middleware.ts       # Refresco de sesión y rutas protegidas
 ├─ .env.example
 ├─ netlify.toml           # Configuración de despliegue en Netlify

@@ -60,6 +60,8 @@ export async function saveModuleAction(
   const description = getString(formData, "description");
   const orderRaw = getString(formData, "order_index");
   const isPublished = formData.get("is_published") === "on";
+  const randomizeExercises = formData.get("randomize_exercises") === "on";
+  const perStudentRaw = getString(formData, "exercises_per_student");
 
   if (title.length < 3) {
     return { error: "El título debe tener al menos 3 caracteres." };
@@ -80,12 +82,27 @@ export async function saveModuleAction(
     return { error: "El orden debe ser un número entero mayor o igual a 0." };
   }
 
+  const exercisesPerStudent =
+    perStudentRaw === "" ? 0 : Number(perStudentRaw);
+
+  if (
+    !Number.isInteger(exercisesPerStudent) ||
+    exercisesPerStudent < 0
+  ) {
+    return {
+      error:
+        "Los ejercicios por estudiante deben ser un número entero mayor o igual a 0 (0 = todos).",
+    };
+  }
+
   const payload = {
     title,
     slug,
     description: description || null,
     order_index: orderIndex,
     is_published: isPublished,
+    randomize_exercises: randomizeExercises,
+    exercises_per_student: exercisesPerStudent,
   };
 
   if (id) {

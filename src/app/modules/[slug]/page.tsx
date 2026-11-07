@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { percentage } from "@/lib/utils";
+import { selectExercisesForStudent } from "@/lib/exercise-selection";
 import type { AttemptRow, ModuleRow, PublicExercise } from "@/lib/types";
 import { ExerciseCard } from "@/components/exercise-card";
 
@@ -61,8 +62,23 @@ export default async function ModulePage({ params }: Props) {
       .eq("module_id", module.id),
   ]);
 
-  const exercises = (exercisesResult.data ?? []) as PublicExercise[];
-  const attempts = (attemptsResult.data ?? []) as AttemptRow[];
+  const allExercises = (exercisesResult.data ?? []) as PublicExercise[];
+
+  // Selección estable por estudiante: misma combinación en cada visita,
+  // distinta a la de los demás alumnos.
+  const exercises = selectExercisesForStudent(
+    allExercises,
+    user.id,
+    module.id,
+    Boolean(module.randomize_exercises),
+    Number(module.exercises_per_student) || 0,
+  );
+
+  const assignedIds = new Set(exercises.map((exercise) => exercise.id));
+
+  const attempts = ((attemptsResult.data ?? []) as AttemptRow[]).filter(
+    (attempt) => assignedIds.has(attempt.exercise_id),
+  );
 
   const solvedIds = new Set(
     attempts
@@ -93,6 +109,15 @@ export default async function ModulePage({ params }: Props) {
             <p className="mt-2 max-w-2xl text-slate-600">
               {module.description ?? "Sin descripción."}
             </p>
+
+            {module.randomize_exercises && (
+              <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+                <span aria-hidden="true">🎲</span>
+                {exercises.length < allExercises.length
+                  ? `Tu selección personalizada: ${exercises.length} de ${allExercises.length} ejercicios`
+                  : "Orden personalizado para ti"}
+              </p>
+            )}
           </div>
 
           <span

@@ -18,9 +18,20 @@ create extension if not exists pgcrypto;
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   full_name text,
+  email text,
   role text not null default 'student' check (role in ('student', 'admin')),
   created_at timestamptz not null default now()
 );
+
+-- Migración para bases de datos creadas antes de los grupos.
+alter table public.profiles add column if not exists email text;
+
+-- Rellena el correo de los perfiles que ya existían.
+update public.profiles p
+set email = u.email
+from auth.users u
+where p.id = u.id
+  and (p.email is null or p.email = '');
 
 alter table public.profiles enable row level security;
 
@@ -64,15 +75,17 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, full_name)
+  insert into public.profiles (id, full_name, email)
   values (
     new.id,
     coalesce(
       nullif(new.raw_user_meta_data ->> 'full_name', ''),
       split_part(coalesce(new.email, 'usuario'), '@', 1)
-    )
+    ),
+    new.email
   )
-  on conflict (id) do nothing;
+  on conflict (id) do update
+    set email = coalesce(excluded.email, public.profiles.email);
 
   return new;
 end;
@@ -118,18 +131,208 @@ create table if not exists public.modules (
   description text,
   order_index integer not null default 0,
   is_published boolean not null default false,
+  randomize_exercises boolean not null default false,
+  exercises_per_student integer not null default 0,
+  module_time_limit_minutes integer,
+  question_time_limit_seconds integer,
   created_by uuid default auth.uid() references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
+-- Migración para bases de datos creadas antes de las variantes por estudiante.
+alter table public.modules
+  add column if not exists randomize_exercises boolean not null default false,
+  add column if not exists exercises_per_student integer not null default 0;
+
+-- Migración para bases de datos creadas antes de los límites de tiempo.
+alter table public.modules
+  add column if not exists module_time_limit_minutes integer,
+  add column if not exists question_time_limit_seconds integer;
+
+alter table public.modules
+  drop constraint if exists modules_exercises_per_student_check;
+
+alter table public.modules
+  add constraint modules_exercises_per_student_check
+  check (exercises_per_student >= 0);
+
+alter table public.modules
+  drop constraint if exists modules_timing_check;
+
+alter table public.modules
+  add constraint modules_timing_check
+  check (
+    (module_time_limit_minutes is null or module_time_limit_minutes > 0)
+    and
+    (question_time_limit_seconds is null or question_time_limit_seconds > 0)
+  );
+
 alter table public.modules enable row level security;
+
+-- ------------------------------------------------------------
+-- 3. GRUPOS Y ASIGNACIONES
+-- ------------------------------------------------------------
+create table if not exists public.groups (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  description text,
+  created_by uuid default auth.uid() references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.group_members (
+  group_id uuid not null references public.groups (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (group_id, user_id)
+);
+
+create table if not exists public.group_modules (
+  group_id uuid not null references public.groups (id) on delete cascade,
+  module_id uuid not null references public.modules (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (group_id, module_id)
+);
+
+alter table public.groups enable row level security;
+alter table public.group_members enable row level security;
+alter table public.group_modules enable row level security;
+
+-- Los estudiantes solo ven los grupos a los que pertenecen.
+drop policy if exists "groups_select" on public.groups;
+create policy "groups_select"
+  on public.groups for select
+  to authenticated
+  using (
+    public.is_admin()
+    or exists (
+      select 1
+      from public.group_members gm
+      where gm.group_id = groups.id
+        and gm.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "groups_admin_insert" on public.groups;
+create policy "groups_admin_insert"
+  on public.groups for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "groups_admin_update" on public.groups;
+create policy "groups_admin_update"
+  on public.groups for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists "groups_admin_delete" on public.groups;
+create policy "groups_admin_delete"
+  on public.groups for delete
+  to authenticated
+  using (public.is_admin());
+
+drop policy if exists "group_members_select" on public.group_members;
+create policy "group_members_select"
+  on public.group_members for select
+  to authenticated
+  using (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "group_members_admin_insert" on public.group_members;
+create policy "group_members_admin_insert"
+  on public.group_members for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "group_members_admin_update" on public.group_members;
+create policy "group_members_admin_update"
+  on public.group_members for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists "group_members_admin_delete" on public.group_members;
+create policy "group_members_admin_delete"
+  on public.group_members for delete
+  to authenticated
+  using (public.is_admin());
+
+drop policy if exists "group_modules_select" on public.group_modules;
+create policy "group_modules_select"
+  on public.group_modules for select
+  to authenticated
+  using (
+    public.is_admin()
+    or exists (
+      select 1
+      from public.group_members gm
+      where gm.group_id = group_modules.group_id
+        and gm.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "group_modules_admin_insert" on public.group_modules;
+create policy "group_modules_admin_insert"
+  on public.group_modules for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "group_modules_admin_update" on public.group_modules;
+create policy "group_modules_admin_update"
+  on public.group_modules for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists "group_modules_admin_delete" on public.group_modules;
+create policy "group_modules_admin_delete"
+  on public.group_modules for delete
+  to authenticated
+  using (public.is_admin());
+
+-- ------------------------------------------------------------
+-- 4. ACCESO A MÓDULOS SEGÚN GRUPOS
+-- ------------------------------------------------------------
+-- Un módulo publicado es visible para todos si no tiene grupos
+-- asignados. Si tiene al menos un grupo, solo lo ven sus miembros.
+create or replace function public.can_access_module(p_module_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.modules m
+    where m.id = p_module_id
+      and m.is_published = true
+      and (
+        not exists (
+          select 1
+          from public.group_modules gm
+          where gm.module_id = m.id
+        )
+        or exists (
+          select 1
+          from public.group_modules gm
+          join public.group_members gmem on gmem.group_id = gm.group_id
+          where gm.module_id = m.id
+            and gmem.user_id = auth.uid()
+        )
+      )
+  );
+$$;
+
+grant execute on function public.can_access_module(uuid) to authenticated;
 
 drop policy if exists "modules_select" on public.modules;
 create policy "modules_select"
   on public.modules for select
   to authenticated
-  using (is_published or public.is_admin());
+  using (public.is_admin() or public.can_access_module(id));
 
 drop policy if exists "modules_admin_insert" on public.modules;
 create policy "modules_admin_insert"
@@ -151,7 +354,7 @@ create policy "modules_admin_delete"
   using (public.is_admin());
 
 -- ------------------------------------------------------------
--- 3. EJERCICIOS
+-- 5. EJERCICIOS
 -- ------------------------------------------------------------
 create table if not exists public.exercises (
   id uuid primary key default gen_random_uuid(),
@@ -177,29 +380,11 @@ create table if not exists public.exercises (
 
 alter table public.exercises enable row level security;
 
--- Permite saber si un módulo está publicado sin chocar con su RLS.
-create or replace function public.module_is_published(p_module_id uuid)
-returns boolean
-language sql
-security definer
-stable
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.modules
-    where id = p_module_id
-      and is_published = true
-  );
-$$;
-
-grant execute on function public.module_is_published(uuid) to authenticated;
-
 drop policy if exists "exercises_select" on public.exercises;
 create policy "exercises_select"
   on public.exercises for select
   to authenticated
-  using (public.is_admin() or public.module_is_published(module_id));
+  using (public.is_admin() or public.can_access_module(module_id));
 
 drop policy if exists "exercises_admin_insert" on public.exercises;
 create policy "exercises_admin_insert"
@@ -221,7 +406,7 @@ create policy "exercises_admin_delete"
   using (public.is_admin());
 
 -- ------------------------------------------------------------
--- 4. INTENTOS / PROGRESO
+-- 6. INTENTOS / PROGRESO
 -- ------------------------------------------------------------
 create table if not exists public.attempts (
   id uuid primary key default gen_random_uuid(),
@@ -245,10 +430,121 @@ drop policy if exists "attempts_insert" on public.attempts;
 create policy "attempts_insert"
   on public.attempts for insert
   to authenticated
-  with check (user_id = auth.uid());
+  with check (
+    user_id = auth.uid()
+    and (public.is_admin() or public.can_access_module(module_id))
+  );
 
 -- ------------------------------------------------------------
--- 5. ÍNDICES Y TRIGGERS DE ACTUALIZACIÓN
+-- 7. SESIONES CON TIEMPO LIMITADO
+-- ------------------------------------------------------------
+-- Una sesión por estudiante y módulo. El reloj del módulo empieza
+-- la primera vez que el estudiante abre el módulo.
+create table if not exists public.module_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  module_id uuid not null references public.modules (id) on delete cascade,
+  started_at timestamptz not null default now(),
+  expires_at timestamptz,
+  completed_at timestamptz,
+  unique (user_id, module_id)
+);
+
+-- Una sesión por pregunta dentro de la sesión del módulo.
+create table if not exists public.question_sessions (
+  id uuid primary key default gen_random_uuid(),
+  module_session_id uuid not null references public.module_sessions (id) on delete cascade,
+  exercise_id uuid not null references public.exercises (id) on delete cascade,
+  started_at timestamptz not null default now(),
+  expires_at timestamptz,
+  submitted_at timestamptz,
+  unique (module_session_id, exercise_id)
+);
+
+alter table public.module_sessions enable row level security;
+alter table public.question_sessions enable row level security;
+
+drop policy if exists "module_sessions_select" on public.module_sessions;
+create policy "module_sessions_select"
+  on public.module_sessions for select
+  to authenticated
+  using (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "module_sessions_insert" on public.module_sessions;
+create policy "module_sessions_insert"
+  on public.module_sessions for insert
+  to authenticated
+  with check (user_id = auth.uid());
+
+drop policy if exists "module_sessions_update" on public.module_sessions;
+create policy "module_sessions_update"
+  on public.module_sessions for update
+  to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists "module_sessions_admin_delete" on public.module_sessions;
+create policy "module_sessions_admin_delete"
+  on public.module_sessions for delete
+  to authenticated
+  using (public.is_admin());
+
+drop policy if exists "question_sessions_select" on public.question_sessions;
+create policy "question_sessions_select"
+  on public.question_sessions for select
+  to authenticated
+  using (
+    public.is_admin()
+    or exists (
+      select 1
+      from public.module_sessions ms
+      where ms.id = question_sessions.module_session_id
+        and ms.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "question_sessions_insert" on public.question_sessions;
+create policy "question_sessions_insert"
+  on public.question_sessions for insert
+  to authenticated
+  with check (
+    exists (
+      select 1
+      from public.module_sessions ms
+      where ms.id = question_sessions.module_session_id
+        and ms.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "question_sessions_update" on public.question_sessions;
+create policy "question_sessions_update"
+  on public.question_sessions for update
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.module_sessions ms
+      where ms.id = question_sessions.module_session_id
+        and ms.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.module_sessions ms
+      where ms.id = question_sessions.module_session_id
+        and ms.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "question_sessions_admin_delete" on public.question_sessions;
+create policy "question_sessions_admin_delete"
+  on public.question_sessions for delete
+  to authenticated
+  using (public.is_admin());
+
+-- ------------------------------------------------------------
+-- 8. ÍNDICES Y TRIGGERS DE ACTUALIZACIÓN
 -- ------------------------------------------------------------
 create index if not exists idx_exercises_module
   on public.exercises (module_id, order_index);
@@ -258,6 +554,18 @@ create index if not exists idx_attempts_user_module
 
 create index if not exists idx_attempts_exercise
   on public.attempts (exercise_id);
+
+create index if not exists idx_group_members_user
+  on public.group_members (user_id);
+
+create index if not exists idx_group_modules_module
+  on public.group_modules (module_id);
+
+create index if not exists idx_module_sessions_user
+  on public.module_sessions (user_id, module_id);
+
+create index if not exists idx_question_sessions_module
+  on public.question_sessions (module_session_id);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -274,11 +582,18 @@ create trigger modules_set_updated_at
   before update on public.modules
   for each row execute function public.set_updated_at();
 
+drop trigger if exists groups_set_updated_at on public.groups;
+create trigger groups_set_updated_at
+  before update on public.groups
+  for each row execute function public.set_updated_at();
+
 -- ------------------------------------------------------------
--- 6. PERMISOS
+-- 9. PERMISOS
 -- ------------------------------------------------------------
 grant select, insert, update, delete
-  on public.profiles, public.modules, public.exercises, public.attempts
+  on public.profiles, public.modules, public.exercises, public.attempts,
+     public.groups, public.group_members, public.group_modules,
+     public.module_sessions, public.question_sessions
   to authenticated;
 
 grant select on public.modules, public.exercises to anon;

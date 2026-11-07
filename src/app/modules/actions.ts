@@ -2,11 +2,455 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { AttemptState } from "@/lib/action-state";
+import type {
+  AttemptState,
+  ExpireQuestionResult,
+  StartSessionResult,
+} from "@/lib/action-state";
+import type {
+  ModuleSessionRow,
+  QuestionSessionRow,
+} from "@/lib/types";
+
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
+const moduleSessionColumns =
+  "id, user_id, module_id, started_at, expires_at, completed_at";
+
+const questionSessionColumns =
+  "id, module_session_id, exercise_id, started_at, expires_at, submitted_at";
+
+type ModuleTiming = {
+  id: string;
+  module_time_limit_minutes: number | null;
+  question_time_limit_seconds: number | null;
+};
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function positiveLimit(value: number | null | undefined) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function sessionExpired(expiresAt: string | null) {
+  return Boolean(expiresAt && new Date(expiresAt).getTime() <= Date.now());
+}
+
+async function getModuleTiming(
+  supabase: SupabaseServerClient,
+  moduleId: string,
+): Promise<ModuleTiming | null> {
+  const { data } = await supabase
+    .from("modules")
+    .select("id, module_time_limit_minutes, question_time_limit_seconds")
+    .eq("id", moduleId)
+    .maybeSingle();
+
+  return (data as ModuleTiming | null) ?? null;
+}
+
+async function ensureModuleSession(
+  supabase: SupabaseServerClient,
+  userId: string,
+  moduleId: string,
+  moduleLimitMinutes: number | null,
+): Promise<ModuleSessionRow | null> {
+  const { data: existing } = await supabase
+    .from("module_sessions")
+    .select(moduleSessionColumns)
+    .eq("user_id", userId)
+    .eq("module_id", moduleId)
+    .maybeSingle();
+
+  if (existing) return existing as ModuleSessionRow;
+
+  const minutes = positiveLimit(moduleLimitMinutes);
+  const expiresAt = minutes
+    ? new Date(Date.now() + minutes * 60_000).toISOString()
+    : null;
+
+  const { data, error } = await supabase
+    .from("module_sessions")
+    .insert({
+      user_id: userId,
+      module_id: moduleId,
+      expires_at: expiresAt,
+    })
+    .select(moduleSessionColumns)
+    .single();
+
+  if (!error && data) return data as ModuleSessionRow;
+
+  // Si dos peticiones intentaron crear la sesión a la vez, leemos la ganadora.
+  const { data: retry } = await supabase
+    .from("module_sessions")
+    .select(moduleSessionColumns)
+    .eq("user_id", userId)
+    .eq("module_id", moduleId)
+    .maybeSingle();
+
+  return (retry as ModuleSessionRow | null) ?? null;
+}
+
+async function ensureQuestionSession(
+  supabase: SupabaseServerClient,
+  moduleSessionId: string,
+  exerciseId: string,
+  limitSeconds: number | null,
+): Promise<QuestionSessionRow | null> {
+  const { data: existing } = await supabase
+    .from("question_sessions")
+    .select(questionSessionColumns)
+    .eq("module_session_id", moduleSessionId)
+    .eq("exercise_id", exerciseId)
+    .maybeSingle();
+
+  if (existing) return existing as QuestionSessionRow;
+
+  const seconds = positiveLimit(limitSeconds);
+  const expiresAt = seconds
+    ? new Date(Date.now() + seconds * 1_000).toISOString()
+    : null;
+
+  const { data, error } = await supabase
+    .from("question_sessions")
+    .insert({
+      module_session_id: moduleSessionId,
+      exercise_id: exerciseId,
+      expires_at: expiresAt,
+    })
+    .select(questionSessionColumns)
+    .single();
+
+  if (!error && data) return data as QuestionSessionRow;
+
+  const { data: retry } = await supabase
+    .from("question_sessions")
+    .select(questionSessionColumns)
+    .eq("module_session_id", moduleSessionId)
+    .eq("exercise_id", exerciseId)
+    .maybeSingle();
+
+  return (retry as QuestionSessionRow | null) ?? null;
+}
+
+async function closeQuestionWithTimeout(
+  supabase: SupabaseServerClient,
+  userId: string,
+  moduleId: string,
+  exerciseId: string,
+  questionSessionId: string,
+) {
+  const { data: updated } = await supabase
+    .from("question_sessions")
+    .update({ submitted_at: nowIso() })
+    .eq("id", questionSessionId)
+    .is("submitted_at", null)
+    .select("id");
+
+  if (!updated || updated.length === 0) return;
+
+  await supabase.from("attempts").insert({
+    user_id: userId,
+    module_id: moduleId,
+    exercise_id: exerciseId,
+    answer: { timeout: true },
+    is_correct: false,
+  });
+
+  revalidatePath("/dashboard");
+}
+
+/* ------------------------------------------------------------
+ * Temporizadores
+ * ---------------------------------------------------------- */
+
+export async function startModuleSession(
+  moduleId: string,
+): Promise<StartSessionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      ok: false,
+      reason: "auth",
+      message: "Tu sesión expiró. Vuelve a iniciar sesión.",
+      serverNow: nowIso(),
+    };
+  }
+
+  if (!moduleId) {
+    return {
+      ok: false,
+      reason: "not_found",
+      message: "No se recibió el módulo.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const module = await getModuleTiming(supabase, moduleId);
+
+  if (!module) {
+    return {
+      ok: false,
+      reason: "not_found",
+      message: "No se encontró el módulo o no tienes acceso.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const session = await ensureModuleSession(
+    supabase,
+    user.id,
+    module.id,
+    module.module_time_limit_minutes,
+  );
+
+  if (!session) {
+    return {
+      ok: false,
+      reason: "error",
+      message: "No se pudo iniciar la sesión del módulo.",
+      serverNow: nowIso(),
+    };
+  }
+
+  return {
+    ok: true,
+    serverNow: nowIso(),
+    moduleExpiresAt: session.expires_at,
+    questionExpiresAt: null,
+    questionSubmittedAt: null,
+  };
+}
+
+export async function startQuestion(
+  exerciseId: string,
+): Promise<StartSessionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      ok: false,
+      reason: "auth",
+      message: "Tu sesión expiró. Vuelve a iniciar sesión.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const { data: exercise } = await supabase
+    .from("exercises")
+    .select("id, module_id")
+    .eq("id", exerciseId)
+    .maybeSingle();
+
+  if (!exercise) {
+    return {
+      ok: false,
+      reason: "not_found",
+      message: "No se encontró el ejercicio.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const module = await getModuleTiming(supabase, exercise.module_id);
+
+  if (!module) {
+    return {
+      ok: false,
+      reason: "not_found",
+      message: "No se encontró el módulo o no tienes acceso.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const session = await ensureModuleSession(
+    supabase,
+    user.id,
+    module.id,
+    module.module_time_limit_minutes,
+  );
+
+  if (!session) {
+    return {
+      ok: false,
+      reason: "error",
+      message: "No se pudo iniciar la sesión del módulo.",
+      serverNow: nowIso(),
+    };
+  }
+
+  if (sessionExpired(session.expires_at)) {
+    return {
+      ok: false,
+      reason: "module_expired",
+      message: "El tiempo del módulo terminó.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const questionSession = await ensureQuestionSession(
+    supabase,
+    session.id,
+    exercise.id,
+    module.question_time_limit_seconds,
+  );
+
+  if (!questionSession) {
+    return {
+      ok: false,
+      reason: "error",
+      message: "No se pudo iniciar el tiempo de la pregunta.",
+      serverNow: nowIso(),
+    };
+  }
+
+  return {
+    ok: true,
+    serverNow: nowIso(),
+    moduleExpiresAt: session.expires_at,
+    questionExpiresAt: questionSession.expires_at,
+    questionSubmittedAt: questionSession.submitted_at,
+  };
+}
+
+export async function expireQuestion(
+  exerciseId: string,
+): Promise<ExpireQuestionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      ok: false,
+      reason: "auth",
+      message: "Tu sesión expiró. Vuelve a iniciar sesión.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const { data: exercise } = await supabase
+    .from("exercises")
+    .select("id, module_id")
+    .eq("id", exerciseId)
+    .maybeSingle();
+
+  if (!exercise) {
+    return {
+      ok: false,
+      reason: "not_found",
+      message: "No se encontró el ejercicio.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const module = await getModuleTiming(supabase, exercise.module_id);
+
+  if (!module) {
+    return {
+      ok: false,
+      reason: "not_found",
+      message: "No se encontró el módulo.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const session = await ensureModuleSession(
+    supabase,
+    user.id,
+    module.id,
+    module.module_time_limit_minutes,
+  );
+
+  if (!session) {
+    return {
+      ok: false,
+      reason: "error",
+      message: "No se pudo leer la sesión del módulo.",
+      serverNow: nowIso(),
+    };
+  }
+
+  if (sessionExpired(session.expires_at)) {
+    return {
+      ok: false,
+      reason: "module_expired",
+      message: "El tiempo del módulo terminó.",
+      serverNow: nowIso(),
+    };
+  }
+
+  const questionSession = await ensureQuestionSession(
+    supabase,
+    session.id,
+    exercise.id,
+    module.question_time_limit_seconds,
+  );
+
+  if (!questionSession) {
+    return {
+      ok: false,
+      reason: "error",
+      message: "No se pudo leer el tiempo de la pregunta.",
+      serverNow: nowIso(),
+    };
+  }
+
+  if (questionSession.submitted_at) {
+    return {
+      ok: true,
+      serverNow: nowIso(),
+      expired: true,
+      alreadySubmitted: true,
+    };
+  }
+
+  if (!sessionExpired(questionSession.expires_at)) {
+    return {
+      ok: true,
+      serverNow: nowIso(),
+      expired: false,
+      alreadySubmitted: false,
+    };
+  }
+
+  await closeQuestionWithTimeout(
+    supabase,
+    user.id,
+    module.id,
+    exercise.id,
+    questionSession.id,
+  );
+
+  return {
+    ok: true,
+    serverNow: nowIso(),
+    expired: true,
+    alreadySubmitted: false,
+  };
+}
+
+/* ------------------------------------------------------------
+ * Corrección de intentos
+ * ---------------------------------------------------------- */
 
 /**
  * Corrige un intento en el servidor. El cliente nunca recibe las
  * respuestas correctas antes de responder.
+ *
+ * Si el módulo o la pregunta tienen límite de tiempo, el servidor
+ * comprueba el plazo antes de aceptar la respuesta.
  */
 export async function submitAttempt(
   _previousState: AttemptState,
@@ -46,7 +490,76 @@ export async function submitAttempt(
     };
   }
 
-  let answer: Record<string, number>;
+  const module = await getModuleTiming(supabase, exercise.module_id);
+  const moduleLimit = positiveLimit(module?.module_time_limit_minutes ?? null);
+  const questionLimit = positiveLimit(
+    module?.question_time_limit_seconds ?? null,
+  );
+
+  let questionSession: QuestionSessionRow | null = null;
+
+  if (module && (moduleLimit || questionLimit)) {
+    const session = await ensureModuleSession(
+      supabase,
+      user.id,
+      module.id,
+      moduleLimit,
+    );
+
+    if (!session) {
+      return {
+        status: "error",
+        message: "No se pudo leer la sesión del módulo.",
+      };
+    }
+
+    if (sessionExpired(session.expires_at)) {
+      return {
+        status: "expired",
+        message: "El tiempo del módulo terminó. Ya no puedes responder.",
+      };
+    }
+
+    if (questionLimit) {
+      questionSession = await ensureQuestionSession(
+        supabase,
+        session.id,
+        exercise.id,
+        questionLimit,
+      );
+
+      if (!questionSession) {
+        return {
+          status: "error",
+          message: "No se pudo leer el tiempo de la pregunta.",
+        };
+      }
+
+      if (questionSession.submitted_at) {
+        return {
+          status: "expired",
+          message: "Esta pregunta ya se cerró.",
+        };
+      }
+
+      if (sessionExpired(questionSession.expires_at)) {
+        await closeQuestionWithTimeout(
+          supabase,
+          user.id,
+          module.id,
+          exercise.id,
+          questionSession.id,
+        );
+
+        return {
+          status: "expired",
+          message: "Se acabó el tiempo de esta pregunta.",
+        };
+      }
+    }
+  }
+
+  let answer: Record<string, unknown>;
   let isCorrect = false;
 
   if (exercise.type === "multiple_choice") {
@@ -101,6 +614,16 @@ export async function submitAttempt(
       status: "error",
       message: "No se pudo guardar tu intento. Inténtalo de nuevo.",
     };
+  }
+
+  // Una respuesta correcta cierra la pregunta. Un error permite
+  // reintentar mientras quede tiempo.
+  if (isCorrect && questionSession) {
+    await supabase
+      .from("question_sessions")
+      .update({ submitted_at: nowIso() })
+      .eq("id", questionSession.id)
+      .is("submitted_at", null);
   }
 
   revalidatePath("/dashboard");

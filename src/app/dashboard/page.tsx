@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { percentage } from "@/lib/utils";
+import { selectExercisesForStudent } from "@/lib/exercise-selection";
 import type { AttemptRow, ModuleRow, ProfileRow } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -33,7 +34,7 @@ export default async function DashboardPage() {
         .eq("is_published", true)
         .order("order_index", { ascending: true })
         .order("created_at", { ascending: true }),
-      supabase.from("exercises").select("id, module_id"),
+      supabase.from("exercises").select("id, module_id, order_index"),
       supabase
         .from("attempts")
         .select("exercise_id, module_id, is_correct")
@@ -47,24 +48,54 @@ export default async function DashboardPage() {
   const exercises = ((exercisesResult.data ?? []) as Array<{
     id: string;
     module_id: string;
+    order_index: number;
   }>).filter((exercise) => publishedModuleIds.has(exercise.module_id));
 
   const attempts = ((attemptsResult.data ?? []) as AttemptRow[]).filter(
     (attempt) => publishedModuleIds.has(attempt.module_id),
   );
 
-  const totalByModule = new Map<string, number>();
+  const exercisesByModule = new Map<
+    string,
+    Array<{ id: string; order_index: number }>
+  >();
+
   for (const exercise of exercises) {
-    totalByModule.set(
-      exercise.module_id,
-      (totalByModule.get(exercise.module_id) ?? 0) + 1,
-    );
+    if (!exercisesByModule.has(exercise.module_id)) {
+      exercisesByModule.set(exercise.module_id, []);
+    }
+    exercisesByModule.get(exercise.module_id)!.push(exercise);
   }
+
+  const totalByModule = new Map<string, number>();
+  const assignedIdsByModule = new Map<string, Set<string>>();
+  let totalExercises = 0;
+
+  for (const module of modules) {
+    const assigned = selectExercisesForStudent(
+      exercisesByModule.get(module.id) ?? [],
+      user.id,
+      module.id,
+      Boolean(module.randomize_exercises),
+      Number(module.exercises_per_student) || 0,
+    );
+
+    assignedIdsByModule.set(
+      module.id,
+      new Set(assigned.map((exercise) => exercise.id)),
+    );
+    totalByModule.set(module.id, assigned.length);
+    totalExercises += assigned.length;
+  }
+
+  const relevantAttempts = attempts.filter((attempt) =>
+    assignedIdsByModule.get(attempt.module_id)?.has(attempt.exercise_id),
+  );
 
   const solvedByModule = new Map<string, Set<string>>();
   const solvedExercises = new Set<string>();
 
-  for (const attempt of attempts) {
+  for (const attempt of relevantAttempts) {
     if (!attempt.is_correct) continue;
 
     solvedExercises.add(attempt.exercise_id);
@@ -75,10 +106,14 @@ export default async function DashboardPage() {
     solvedByModule.get(attempt.module_id)!.add(attempt.exercise_id);
   }
 
-  const totalExercises = exercises.length;
   const totalSolved = solvedExercises.size;
-  const correctAttempts = attempts.filter((attempt) => attempt.is_correct).length;
-  const accuracy = attempts.length > 0 ? Math.round((correctAttempts / attempts.length) * 100) : 0;
+  const correctAttempts = relevantAttempts.filter(
+    (attempt) => attempt.is_correct,
+  ).length;
+  const accuracy =
+    relevantAttempts.length > 0
+      ? Math.round((correctAttempts / relevantAttempts.length) * 100)
+      : 0;
 
   const displayName =
     profile?.full_name ?? user.email?.split("@")[0] ?? "estudiante";
@@ -127,7 +162,8 @@ export default async function DashboardPage() {
           <p className="text-sm font-medium text-slate-500">Precisión</p>
           <p className="mt-2 text-3xl font-bold text-slate-900">{accuracy}%</p>
           <p className="mt-1 text-xs text-slate-400">
-            {attempts.length} intento{attempts.length === 1 ? "" : "s"} en total
+            {relevantAttempts.length} intento
+            {relevantAttempts.length === 1 ? "" : "s"} en total
           </p>
         </div>
       </div>
