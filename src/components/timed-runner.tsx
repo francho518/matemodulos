@@ -9,6 +9,7 @@ import {
   submitAttempt,
 } from "@/app/modules/actions";
 import { MathText } from "@/components/math-text";
+import { formatScore } from "@/lib/scoring";
 import type { AttemptState } from "@/lib/action-state";
 import type { PublicExercise } from "@/lib/types";
 
@@ -22,6 +23,8 @@ type Props = {
   moduleId: string;
   exercises: PublicExercise[];
   solvedIds: string[];
+  lockedByAttemptsIds: string[];
+  initialEarnedPoints: number;
   moduleTimeLimitMinutes: number | null;
   questionTimeLimitSeconds: number | null;
   initialModuleExpiresAt: string | null;
@@ -73,8 +76,9 @@ function useRemainingMs(
 function initialDoneIds(
   solvedIds: string[],
   sessions: QuestionSessionInfo[],
+  lockedByAttemptsIds: string[],
 ) {
-  const done = new Set(solvedIds);
+  const done = new Set<string>([...solvedIds, ...lockedByAttemptsIds]);
 
   for (const session of sessions) {
     if (session.submittedAt) done.add(session.exerciseId);
@@ -87,6 +91,8 @@ export function TimedRunner({
   moduleId,
   exercises,
   solvedIds,
+  lockedByAttemptsIds,
+  initialEarnedPoints,
   moduleTimeLimitMinutes,
   questionTimeLimitSeconds,
   initialModuleExpiresAt,
@@ -94,11 +100,16 @@ export function TimedRunner({
   serverNow: initialServerNow,
 }: Props) {
   const [solved, setSolved] = useState(() => new Set(solvedIds));
+  const [earned, setEarned] = useState(initialEarnedPoints);
   const [done, setDone] = useState(() =>
-    initialDoneIds(solvedIds, initialQuestionSessions),
+    initialDoneIds(solvedIds, initialQuestionSessions, lockedByAttemptsIds),
   );
   const [index, setIndex] = useState(() => {
-    const finished = initialDoneIds(solvedIds, initialQuestionSessions);
+    const finished = initialDoneIds(
+      solvedIds,
+      initialQuestionSessions,
+      lockedByAttemptsIds,
+    );
     const next = exercises.findIndex((exercise) => !finished.has(exercise.id));
     return next === -1 ? exercises.length : next;
   });
@@ -148,8 +159,11 @@ export function TimedRunner({
 
   const handleDone = (
     exerciseId: string,
-    outcome: "correct" | "timeout",
+    outcome: "correct" | "timeout" | "locked",
+    points = 0,
   ) => {
+    if (done.has(exerciseId)) return;
+
     const nextDone = new Set(done);
     nextDone.add(exerciseId);
     setDone(nextDone);
@@ -158,6 +172,7 @@ export function TimedRunner({
       const nextSolved = new Set(solved);
       nextSolved.add(exerciseId);
       setSolved(nextSolved);
+      setEarned((previous) => previous + points);
     }
 
     const nextIndex = exercises.findIndex(
@@ -186,7 +201,8 @@ export function TimedRunner({
                 : "Módulo"}
             </p>
             <p className="mt-1 text-sm text-slate-600">
-              {solved.size} de {exercises.length} ejercicios resueltos
+              {solved.size} de {exercises.length} ejercicios resueltos · Puntaje:{" "}
+              {formatScore(earned)} / {exercises.length}
               {current ? ` · pregunta ${index + 1} de ${exercises.length}` : ""}
             </p>
           </div>
@@ -210,7 +226,7 @@ export function TimedRunner({
             style={{
               width: `${
                 exercises.length > 0
-                  ? Math.round((solved.size / exercises.length) * 100)
+                  ? Math.round((earned / exercises.length) * 100)
                   : 0
               }%`,
             }}
@@ -239,7 +255,12 @@ export function TimedRunner({
               allSolved ? "text-emerald-800" : "text-amber-800"
             }`}
           >
-            Resolviste {solved.size} de {exercises.length} ejercicios.
+            Resolviste {solved.size} de {exercises.length} ejercicios · Puntaje:{" "}
+            {formatScore(earned)} / {exercises.length} · Nota:{" "}
+            {formatScore(
+              exercises.length > 0 ? (earned / exercises.length) * 10 : 0,
+            )}{" "}
+            / 10
           </p>
           <Link href="/dashboard" className="btn-primary mt-6">
             Elegir otro módulo
@@ -252,8 +273,9 @@ export function TimedRunner({
             El tiempo del módulo terminó
           </h2>
           <p className="mt-2 text-sm text-amber-800">
-            Resolviste {solved.size} de {exercises.length} ejercicios. Tus
-            respuestas quedaron guardadas.
+            Resolviste {solved.size} de {exercises.length} ejercicios · Puntaje:{" "}
+            {formatScore(earned)} / {exercises.length}. Tus respuestas quedaron
+            guardadas.
           </p>
           <Link href="/dashboard" className="btn-primary mt-6">
             Volver a mis módulos
@@ -280,7 +302,11 @@ type QuestionProps = {
   total: number;
   questionTimeLimitSeconds: number | null;
   moduleExpired: boolean;
-  onDone: (exerciseId: string, outcome: "correct" | "timeout") => void;
+  onDone: (
+    exerciseId: string,
+    outcome: "correct" | "timeout" | "locked",
+    points?: number,
+  ) => void;
 };
 
 function TimedQuestion({
@@ -380,7 +406,9 @@ function TimedQuestion({
   }, [remaining, timedOut, closeRequested, exercise.id]);
 
   useEffect(() => {
-    if (state.status === "expired") setTimedOut(true);
+    if (state.status === "expired" || state.status === "locked") {
+      setTimedOut(true);
+    }
 
     if (state.status === "correct") {
       setSession((previous) =>
@@ -495,7 +523,7 @@ function TimedQuestion({
           <button
             type="button"
             className="btn-primary mt-4"
-            onClick={() => onDone(exercise.id, "correct")}
+            onClick={() => onDone(exercise.id, "correct", state.points)}
           >
             {number < total ? "Siguiente pregunta →" : "Finalizar módulo"}
           </button>
@@ -505,17 +533,24 @@ function TimedQuestion({
       {(timedOut || state.status === "expired") && (
         <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           <p className="font-semibold">
-            {state.status === "expired"
+            {state.status === "expired" || state.status === "locked"
               ? state.message
               : "Se acabó el tiempo de esta pregunta."}
           </p>
           <p className="mt-2 text-amber-700">
-            La respuesta no se contó como correcta.
+            {state.status === "locked"
+              ? "Ya no puedes enviar más respuestas para este ejercicio."
+              : "La respuesta no se contó como correcta."}
           </p>
           <button
             type="button"
             className="btn-primary mt-4"
-            onClick={() => onDone(exercise.id, "timeout")}
+            onClick={() =>
+              onDone(
+                exercise.id,
+                state.status === "locked" ? "locked" : "timeout",
+              )
+            }
           >
             {number < total ? "Siguiente pregunta →" : "Finalizar módulo"}
           </button>

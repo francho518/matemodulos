@@ -257,10 +257,9 @@ export default async function GroupDetailPage({ params, searchParams }: Props) {
           Módulos asignados al grupo
         </h3>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          Marca los módulos que puede ver este grupo. Si un módulo no tiene
-          ningún grupo asignado, seguirá siendo visible para todos los
-          estudiantes. Si marcas un módulo aquí, solo lo verán los miembros de
-          este grupo.
+          Marca los módulos que puede ver este grupo. Un módulo solo es visible
+          para los estudiantes de los grupos donde esté asignado: si no lo
+          asignas a ningún grupo, ningún estudiante lo verá.
         </p>
 
         <form action={setGroupModulesAction} className="mt-5">

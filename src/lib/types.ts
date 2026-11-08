@@ -34,6 +34,7 @@ export type AttemptRow = {
   exercise_id: string;
   module_id: string;
   is_correct: boolean;
+  created_at: string;
 };
 
 export type ProfileRow = {

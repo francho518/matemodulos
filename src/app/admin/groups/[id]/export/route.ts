@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { selectExercisesForStudent } from "@/lib/exercise-selection";
+import { scoreByExercise } from "@/lib/scoring";
 import { slugify } from "@/lib/utils";
 import type { ModuleRow } from "@/lib/types";
 
@@ -17,6 +18,7 @@ type ExportAttempt = {
   module_id: string;
   exercise_id: string;
   is_correct: boolean;
+  created_at: string;
 };
 
 type ExportExercise = {
@@ -42,6 +44,7 @@ type StudentModuleStats = {
   module: ModuleRow;
   total: number;
   solved: number;
+  points: number;
   grade: number | null;
   percentage: number | null;
 };
@@ -120,6 +123,8 @@ export async function GET(
 
   const assignedModuleIds = (assignments ?? []).map((row) => row.module_id);
 
+  // Solo se exportan los módulos asignados al grupo. Un módulo sin
+  // grupo no es visible para ningún estudiante.
   let modules: ModuleRow[] = [];
 
   if (assignedModuleIds.length > 0) {
@@ -127,15 +132,6 @@ export async function GET(
       .from("modules")
       .select("*")
       .in("id", assignedModuleIds)
-      .order("order_index", { ascending: true })
-      .order("created_at", { ascending: true });
-
-    modules = (data ?? []) as ModuleRow[];
-  } else {
-    const { data } = await supabase
-      .from("modules")
-      .select("*")
-      .eq("is_published", true)
       .order("order_index", { ascending: true })
       .order("created_at", { ascending: true });
 
@@ -158,7 +154,7 @@ export async function GET(
     if (userIds.length > 0) {
       const { data: attemptData } = await supabase
         .from("attempts")
-        .select("user_id, module_id, exercise_id, is_correct")
+        .select("user_id, module_id, exercise_id, is_correct, created_at")
         .in("user_id", userIds)
         .in("module_id", moduleIds);
 
@@ -203,24 +199,32 @@ export async function GET(
       const studentAttempts =
         attemptsByStudentModule.get(`${studentId}:${module.id}`) ?? [];
 
+      const relevantAttempts = studentAttempts.filter((attempt) =>
+        assignedIds.has(attempt.exercise_id),
+      );
+
       const solved = new Set(
-        studentAttempts
-          .filter(
-            (attempt) =>
-              attempt.is_correct && assignedIds.has(attempt.exercise_id),
-          )
+        relevantAttempts
+          .filter((attempt) => attempt.is_correct)
           .map((attempt) => attempt.exercise_id),
       );
 
+      const scores = scoreByExercise(relevantAttempts);
+
       const total = assigned.length;
       const solvedCount = solved.size;
+      const points = assigned.reduce(
+        (sum, exercise) => sum + (scores.get(exercise.id) ?? 0),
+        0,
+      );
 
       return {
         module,
         total,
         solved: solvedCount,
-        grade: total > 0 ? (solvedCount / total) * 10 : null,
-        percentage: total > 0 ? (solvedCount / total) * 100 : null,
+        points,
+        grade: total > 0 ? (points / total) * 10 : null,
+        percentage: total > 0 ? (points / total) * 100 : null,
       };
     });
   };
@@ -236,6 +240,8 @@ export async function GET(
         "Módulo",
         "Ejercicios asignados",
         "Ejercicios resueltos",
+        "Puntos obtenidos",
+        "Puntaje máximo",
         "Nota (0-10)",
         "Porcentaje (%)",
       ]
@@ -253,6 +259,8 @@ export async function GET(
             csvText(stats.module.title),
             csvNumber(stats.total),
             csvNumber(stats.solved),
+            csvDecimal(stats.points),
+            csvNumber(stats.total),
             stats.grade === null ? "" : csvDecimal(stats.grade),
             stats.percentage === null
               ? ""

@@ -22,13 +22,16 @@ Stack 100 % gratuito para empezar:
 - Ejercicios de **opción múltiple** y **respuesta numérica** con tolerancia.
 - Corrección en el servidor: el navegador nunca recibe la respuesta correcta
   antes de responder.
-- Progreso por usuario: ejercicios resueltos, porcentaje y precisión.
+- Progreso por usuario: ejercicios resueltos, puntaje, nota y precisión.
 - Panel de administración para crear/editar módulos y agregar/eliminar
   ejercicios.
+- **Puntaje por intento**: acierto al 1.er intento = 1,0; 2.º = 0,8; 3.er
+  = 0,5; 4.º o más = 0. Cada ejercicio se cierra al acertar o al agotar los 4
+  intentos.
 - **Grupos de estudiantes**: asigna módulos a un grupo y limita su visibilidad
-  a los miembros.
+  únicamente a los miembros del grupo.
 - **Exportación de notas** de un grupo en CSV compatible con Excel (nota de 0 a
-  10 y porcentaje).
+  10, puntaje y porcentaje).
 - **Límites de tiempo** opcionales por módulo y por pregunta, controlados en el
   servidor.
 - Fórmulas matemáticas con sintaxis LaTeX: `$x^2 + 1$` o `$$...$$`.
@@ -74,6 +77,11 @@ Stack 100 % gratuito para empezar:
 > [`supabase/migration-groups-timing.sql`](supabase/migration-groups-timing.sql).
 > Ese archivo agrega grupos, correos, sesiones de tiempo y las políticas de
 > acceso. No borra datos existentes.
+>
+> **Visibilidad estricta por grupos (obligatorio):** ejecuta también
+> [`supabase/migration-module-visibility.sql`](supabase/migration-module-visibility.sql).
+> A partir de ese cambio, un módulo que no esté asignado a ningún grupo no lo ve
+> ningún estudiante.
 
 ### 3. Obtener las claves
 
@@ -265,13 +273,15 @@ En **Administración → Grupos** puedes crear grupos (por ejemplo, `3.º A`) y:
 
 1. **Agregar estudiantes** ya registrados en la plataforma.
 2. **Asignar módulos** marcando las casillas correspondientes.
-3. **Exportar las notas** del grupo con el botón **Exportar notas (CSV)**.
+3. **Descargar las notas** del grupo con los botones **Planilla de notas (CSV)**
+   o **Detalle por módulo (CSV)**.
 
 ### Visibilidad de los módulos
 
-- Un módulo **sin grupos asignados** sigue visible para todos los estudiantes.
-- Un módulo **con al menos un grupo asignado** solo lo ven los miembros de esos
-  grupos.
+- Un módulo **solo es visible** para los estudiantes que pertenecen a algún grupo
+  al que el módulo esté asignado.
+- Un módulo **sin grupos asignados** no lo ve ningún estudiante (el
+  administrador sí lo ve desde el panel).
 - Un estudiante puede pertenecer a varios grupos. Verá la unión de los módulos
   asignados a todos ellos.
 
@@ -283,11 +293,27 @@ separador y UTF-8 con BOM para conservar tildes y eñes). Hay dos opciones:
 - **Planilla de notas:** una fila por estudiante y columnas de nota y porcentaje
   para cada módulo, más el promedio.
 - **Detalle por módulo:** una fila por estudiante y módulo con ejercicios
-  asignados, resueltos, nota y porcentaje.
+  asignados, resueltos, puntos obtenidos, puntaje máximo, nota y porcentaje.
 
 La nota va de **0 a 10** y se calcula sobre la selección personalizada de
-ejercicios de cada estudiante, igual que en el panel del alumno. Un ejercicio
-cuenta como resuelto si tuvo al menos un intento correcto.
+ejercicios de cada estudiante, igual que en el panel del alumno. La nota depende
+del número de intento en que se acierta (ver la sección de puntaje).
+
+### Puntaje por intento
+
+Cada ejercicio vale un máximo de 1 punto:
+
+| Acierto en | Puntos |
+| ---------- | ------ |
+| 1.er intento | 1,0 |
+| 2.º intento | 0,8 |
+| 3.er intento | 0,5 |
+| 4.º intento o más | 0 |
+
+Un ejercicio nunca acertado vale 0. Al acertar, o al llegar al cuarto intento,
+el ejercicio **queda cerrado** y el servidor rechaza cualquier respuesta
+posterior. La nota del módulo es `puntos obtenidos / ejercicios asignados × 10`
+y la misma fórmula se usa en la exportación del grupo.
 
 ---
 
@@ -350,7 +376,8 @@ math-server/
 │  ├─ seed.sql            # Módulo de ejemplo Álgebra básica
 │  ├─ seed-factorizacion.sql  # Módulo Factorización con variantes
 │  ├─ migration-student-variants.sql  # Columnas para variantes
-│  └─ migration-groups-timing.sql     # Grupos, notas y tiempos
+│  ├─ migration-groups-timing.sql     # Grupos, notas y tiempos
+│  └─ migration-module-visibility.sql # Visibilidad estricta por grupos
 ├─ src/
 │  ├─ app/
 │  │  ├─ (auth)/          # Login, registro y Server Actions de sesión
@@ -377,7 +404,7 @@ math-server/
 | `profiles`          | Nombre, correo y rol (`student` / `admin`) de cada usuario.    |
 | `modules`           | Temas, variantes y límites de tiempo.                          |
 | `exercises`         | Ejercicios de un módulo, con su respuesta correcta.            |
-| `attempts`          | Intentos de cada usuario; base del progreso y las notas.       |
+| `attempts`          | Intentos de cada usuario (orden y base del puntaje y las notas). |
 | `groups`            | Grupos de estudiantes.                                         |
 | `group_members`     | Estudiantes que pertenecen a cada grupo.                       |
 | `group_modules`     | Módulos asignados a cada grupo (controlan la visibilidad).     |
@@ -392,8 +419,9 @@ un **Server Action** (`src/app/modules/actions.ts`), nunca en el navegador.
 ## Seguridad
 
 - RLS activado en todas las tablas.
-- Los estudiantes solo pueden leer los módulos publicados a los que tienen
-  acceso y sus propios intentos.
+- Los estudiantes solo pueden leer los módulos publicados y asignados a algún
+  grupo al que pertenezcan, y sus propios intentos.
+- Un módulo sin grupos asignados no es visible para ningún estudiante.
 - Los módulos asignados a un grupo solo son visibles para sus miembros.
 - Solo los administradores pueden crear, editar o borrar contenido, grupos y
   asignaciones.

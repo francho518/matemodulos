@@ -7,6 +7,7 @@ import type {
   ExpireQuestionResult,
   StartSessionResult,
 } from "@/lib/action-state";
+import { pointsLabel, scoreForAttempt } from "@/lib/scoring";
 import type {
   ModuleSessionRow,
   QuestionSessionRow,
@@ -19,6 +20,9 @@ const moduleSessionColumns =
 
 const questionSessionColumns =
   "id, module_session_id, exercise_id, started_at, expires_at, submitted_at";
+
+/** Después del cuarto intento el ejercicio ya no suma puntos. */
+const MAX_ATTEMPTS = 4;
 
 type ModuleTiming = {
   id: string;
@@ -628,6 +632,36 @@ export async function submitAttempt(
   let answer: Record<string, unknown>;
   let isCorrect = false;
 
+  // Un ejercicio ya resuelto o con los 4 intentos usados queda cerrado:
+  // no se aceptan más respuestas.
+  const { data: previousAttemptRows } = await supabase
+    .from("attempts")
+    .select("id, is_correct, created_at")
+    .eq("user_id", user.id)
+    .eq("exercise_id", exercise.id)
+    .order("created_at", { ascending: true });
+
+  const previousAttempts = previousAttemptRows ?? [];
+  const alreadyCorrect = previousAttempts.some((attempt) => attempt.is_correct);
+
+  if (alreadyCorrect) {
+    return {
+      status: "locked",
+      message:
+        "Ya respondiste correctamente este ejercicio. No se aceptan más respuestas.",
+    };
+  }
+
+  if (previousAttempts.length >= MAX_ATTEMPTS) {
+    return {
+      status: "locked",
+      message:
+        "Agotaste los 4 intentos de este ejercicio. No se aceptan más respuestas.",
+    };
+  }
+
+  const attemptNumber = previousAttempts.length + 1;
+
   if (exercise.type === "multiple_choice") {
     const optionRaw = formData.get("option");
     const selected =
@@ -667,6 +701,7 @@ export async function submitAttempt(
     isCorrect = Math.abs(value - correct) <= margin;
   }
 
+  // Guardamos el intento; su número define el puntaje del acierto.
   const { error: insertError } = await supabase.from("attempts").insert({
     user_id: user.id,
     module_id: exercise.module_id,
@@ -682,9 +717,9 @@ export async function submitAttempt(
     };
   }
 
-  // Una respuesta correcta cierra la pregunta. Un error permite
-  // reintentar mientras quede tiempo.
-  if (isCorrect && questionSession) {
+  // Una respuesta correcta cierra la pregunta. También se cierra al
+  // agotar los 4 intentos; no se aceptan respuestas posteriores.
+  if ((isCorrect || attemptNumber >= MAX_ATTEMPTS) && questionSession) {
     await supabase
       .from("question_sessions")
       .update({ submitted_at: nowIso() })
@@ -694,11 +729,37 @@ export async function submitAttempt(
 
   revalidatePath("/dashboard");
 
+  if (isCorrect) {
+    const points = scoreForAttempt(attemptNumber);
+
+    return {
+      status: "correct",
+      message:
+        points > 0
+          ? `¡Correcto! Ganaste ${pointsLabel(points)}.`
+          : "¡Correcto! Pero como fue tu cuarto intento o posterior, este ejercicio suma 0 puntos.",
+      explanation: exercise.explanation ?? null,
+      points,
+      attemptNumber,
+    };
+  }
+
+  if (attemptNumber >= MAX_ATTEMPTS) {
+    return {
+      status: "locked",
+      message:
+        "Se agotaron los 4 intentos de este ejercicio. Ya no puedes enviar más respuestas.",
+      explanation: exercise.explanation ?? null,
+    };
+  }
+
+  const nextPoints = scoreForAttempt(attemptNumber + 1);
+
   return {
-    status: isCorrect ? "correct" : "incorrect",
-    message: isCorrect
-      ? "¡Correcto! Buen trabajo."
-      : "Todavía no es correcto. Revísalo e inténtalo de nuevo.",
+    status: "incorrect",
+    message: `Todavía no es correcto. Si aciertas en el siguiente intento ganas ${pointsLabel(nextPoints)}.`,
     explanation: exercise.explanation ?? null,
+    attemptNumber,
+    nextPoints,
   };
 }

@@ -88,7 +88,7 @@ export default async function EditModulePage({ params, searchParams }: Props) {
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 {module.is_published
-                  ? "Este módulo está publicado y visible para los estudiantes."
+                  ? "Este módulo está publicado. Solo lo verán los estudiantes de los grupos a los que esté asignado."
                   : "Este módulo está en borrador y no es visible para los estudiantes."}
               </p>
               <p className="mt-1 text-sm text-slate-500">
@@ -107,14 +107,20 @@ export default async function EditModulePage({ params, searchParams }: Props) {
                   : "Sin límite de tiempo por pregunta."}
               </p>
               <p className="mt-1 text-sm text-slate-500">
-                Para limitar este módulo a ciertos grupos, asígnalo desde{" "}
+                Puntaje por ejercicio: acierto al 1.er intento 1,0 · 2.º 0,8 ·
+                3.er 0,5 · 4.º o más 0. El ejercicio se cierra al acertar o al
+                agotar los 4 intentos.
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                Este módulo solo es visible para los grupos a los que lo asignes
+                desde{" "}
                 <Link
                   href="/admin/groups"
                   className="font-medium text-indigo-600 hover:text-indigo-700"
                 >
                   Grupos
                 </Link>
-                .
+                . Si no lo asignas a ningún grupo, ningún estudiante lo verá.
               </p>
             </div>
 

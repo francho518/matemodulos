@@ -319,8 +319,9 @@ create policy "group_modules_admin_delete"
 -- ------------------------------------------------------------
 -- 4. ACCESO A MÓDULOS SEGÚN GRUPOS
 -- ------------------------------------------------------------
--- Un módulo publicado es visible para todos si no tiene grupos
--- asignados. Si tiene al menos un grupo, solo lo ven sus miembros.
+-- Un módulo publicado solo es visible para los miembros de algún
+-- grupo al que esté asignado. Si no tiene grupos, no lo ve ningún
+-- estudiante (los administradores sí, desde el panel).
 create or replace function public.can_access_module(p_module_id uuid)
 returns boolean
 language sql
@@ -333,19 +334,12 @@ as $$
     from public.modules m
     where m.id = p_module_id
       and m.is_published = true
-      and (
-        not exists (
-          select 1
-          from public.group_modules gm
-          where gm.module_id = m.id
-        )
-        or exists (
-          select 1
-          from public.group_modules gm
-          join public.group_members gmem on gmem.group_id = gm.group_id
-          where gm.module_id = m.id
-            and gmem.user_id = auth.uid()
-        )
+      and exists (
+        select 1
+        from public.group_modules gm
+        join public.group_members gmem on gmem.group_id = gm.group_id
+        where gm.module_id = m.id
+          and gmem.user_id = auth.uid()
       )
   );
 $$;
@@ -578,6 +572,9 @@ create index if not exists idx_attempts_user_module
 
 create index if not exists idx_attempts_exercise
   on public.attempts (exercise_id);
+
+create index if not exists idx_attempts_user_exercise
+  on public.attempts (user_id, exercise_id, created_at);
 
 create index if not exists idx_group_members_user
   on public.group_members (user_id);

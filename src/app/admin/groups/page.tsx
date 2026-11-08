@@ -53,9 +53,9 @@ export default async function GroupsPage({ searchParams }: Props) {
       <div>
         <h2 className="text-xl font-bold text-slate-900">Grupos</h2>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          Agrupa estudiantes y asigna módulos. Un módulo asignado a un grupo solo
-          es visible para los miembros de ese grupo. Los módulos sin grupos
-          asignados siguen visibles para todos los estudiantes.
+          Agrupa estudiantes y asigna módulos. Un módulo solo es visible para los
+          estudiantes que pertenecen a algún grupo al que esté asignado. Los
+          módulos sin grupos asignados no los ve ningún estudiante.
         </p>
       </div>
 

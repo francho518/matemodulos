@@ -5,9 +5,22 @@ export type ActionState = {
 
 export type AttemptState =
   | { status: "idle" }
-  | { status: "correct"; message: string; explanation: string | null }
-  | { status: "incorrect"; message: string; explanation: string | null }
+  | {
+      status: "correct";
+      message: string;
+      explanation: string | null;
+      points: number;
+      attemptNumber: number;
+    }
+  | {
+      status: "incorrect";
+      message: string;
+      explanation: string | null;
+      attemptNumber: number;
+      nextPoints: number;
+    }
   | { status: "expired"; message: string }
+  | { status: "locked"; message: string; explanation?: string | null }
   | { status: "error"; message: string };
 
 export type TimingActionError = {

@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { percentage } from "@/lib/utils";
 import { selectExercisesForStudent } from "@/lib/exercise-selection";
+import { formatScore, scoreByExercise } from "@/lib/scoring";
 import type { AttemptRow, ModuleRow, ProfileRow } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -37,7 +38,7 @@ export default async function DashboardPage() {
       supabase.from("exercises").select("id, module_id, order_index"),
       supabase
         .from("attempts")
-        .select("exercise_id, module_id, is_correct")
+        .select("exercise_id, module_id, is_correct, created_at")
         .eq("user_id", user.id),
     ]);
 
@@ -107,6 +108,29 @@ export default async function DashboardPage() {
   }
 
   const totalSolved = solvedExercises.size;
+
+  const scores = scoreByExercise(relevantAttempts);
+
+  const moduleIdByExercise = new Map(
+    exercises.map((exercise) => [exercise.id, exercise.module_id]),
+  );
+
+  const pointsByModule = new Map<string, number>();
+
+  for (const [exerciseId, score] of scores) {
+    const moduleId = moduleIdByExercise.get(exerciseId);
+    if (!moduleId) continue;
+
+    pointsByModule.set(moduleId, (pointsByModule.get(moduleId) ?? 0) + score);
+  }
+
+  const totalPoints = Array.from(pointsByModule.values()).reduce(
+    (sum, points) => sum + points,
+    0,
+  );
+  const overallGrade =
+    totalExercises > 0 ? (totalPoints / totalExercises) * 10 : 0;
+
   const correctAttempts = relevantAttempts.filter(
     (attempt) => attempt.is_correct,
   ).length;
@@ -139,7 +163,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Estadísticas */}
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="card p-5">
           <p className="text-sm font-medium text-slate-500">Módulos disponibles</p>
           <p className="mt-2 text-3xl font-bold text-slate-900">
@@ -159,6 +183,20 @@ export default async function DashboardPage() {
         </div>
 
         <div className="card p-5">
+          <p className="text-sm font-medium text-slate-500">Puntaje</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">
+            {formatScore(totalPoints)}
+            <span className="text-base font-medium text-slate-400">
+              {" "}
+              / {totalExercises}
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Nota global: {formatScore(overallGrade)} / 10
+          </p>
+        </div>
+
+        <div className="card p-5">
           <p className="text-sm font-medium text-slate-500">Precisión</p>
           <p className="mt-2 text-3xl font-bold text-slate-900">{accuracy}%</p>
           <p className="mt-1 text-xs text-slate-400">
@@ -174,15 +212,16 @@ export default async function DashboardPage() {
       {modules.length === 0 ? (
         <div className="card mt-4 p-10 text-center">
           <p className="text-lg font-semibold text-slate-700">
-            Todavía no hay módulos publicados
+            Todavía no tienes módulos asignados
           </p>
           <p className="mt-2 text-sm text-slate-500">
-            Pide a un administrador que publique el primer tema o créalo desde el
-            panel de administración.
+            Los módulos solo son visibles para los estudiantes que pertenecen a
+            un grupo con módulos asignados. Pide a tu profesor que te agregue a
+            un grupo.
           </p>
           {profile?.role === "admin" && (
             <Link href="/admin/modules/new" className="btn-primary mt-6">
-              Crear mi primer módulo
+              Crear un módulo
             </Link>
           )}
         </div>
@@ -191,6 +230,8 @@ export default async function DashboardPage() {
           {modules.map((module) => {
             const total = totalByModule.get(module.id) ?? 0;
             const solved = solvedByModule.get(module.id)?.size ?? 0;
+            const points = pointsByModule.get(module.id) ?? 0;
+            const moduleGrade = total > 0 ? (points / total) * 10 : 0;
             const progress = percentage(solved, total);
 
             return (
@@ -239,7 +280,7 @@ export default async function DashboardPage() {
                 <div className="mt-5">
                   <div className="flex items-center justify-between text-xs text-slate-500">
                     <span>{progress}% completado</span>
-                    <span>{total} ejercicios</span>
+                    <span>Nota {formatScore(moduleGrade)} / 10</span>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
                     <div
@@ -247,6 +288,9 @@ export default async function DashboardPage() {
                       style={{ width: `${progress}%` }}
                     />
                   </div>
+                  <p className="mt-1.5 text-xs text-slate-400">
+                    {formatScore(points)} de {total} puntos · {total} ejercicios
+                  </p>
                 </div>
 
                 <span className="mt-5 text-sm font-semibold text-indigo-600">

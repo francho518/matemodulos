@@ -171,7 +171,7 @@ export function ModuleForm({ module }: Props) {
             />
             <span className="text-sm text-slate-700">
               <span className="font-semibold text-slate-900">Publicado</span> ·
-              visible para los estudiantes
+              visible para los estudiantes de los grupos donde se asigne
             </span>
           </label>
         </div>
