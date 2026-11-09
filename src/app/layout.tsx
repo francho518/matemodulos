@@ -7,8 +7,8 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: {
-    default: "Matemódulos · Practica matemáticas",
-    template: "%s · Matemódulos",
+    default: "Mate Dual Brucke · Practica matemáticas",
+    template: "%s · Mate Dual Brucke",
   },
   description:
     "Plataforma modular de ejercicios de matemáticas con corrección automática, progreso por usuario y panel de administración.",
@@ -27,7 +27,8 @@ export default function RootLayout({
         <footer className="border-t border-slate-200 bg-white">
           <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 px-4 py-6 text-sm text-slate-500 sm:flex-row">
             <p>
-              Matemódulos · Hecho con Next.js, Supabase y mucho café.
+              MateDual Brucke · Hecho por Ing. Francisco Ochoa con Next.js,
+              Supabase y mucho café.
             </p>
             <p>Gratis para siempre en su versión básica.</p>
           </div>

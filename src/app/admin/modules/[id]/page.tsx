@@ -109,7 +109,8 @@ export default async function EditModulePage({ params, searchParams }: Props) {
               <p className="mt-1 text-sm text-slate-500">
                 Puntaje por ejercicio: acierto al 1.er intento 1,0 · 2.º 0,8 ·
                 3.er 0,5 · 4.º o más 0. El ejercicio se cierra al acertar o al
-                agotar los 4 intentos.
+                agotar los 4 intentos. El estudiante los verá de uno en uno y
+                avanzará al siguiente cuando el actual quede cerrado.
               </p>
               <p className="mt-1 text-sm text-slate-500">
                 Este módulo solo es visible para los grupos a los que lo asignes

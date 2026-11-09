@@ -15,6 +15,7 @@ type Props = {
   score: number;
   attemptsUsed: number;
   locked: boolean;
+  isLast?: boolean;
 };
 
 const initialState: AttemptState = { status: "idle" };
@@ -26,6 +27,7 @@ export function ExerciseCard({
   score,
   attemptsUsed,
   locked,
+  isLast = false,
 }: Props) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState<AttemptState, FormData>(
@@ -33,15 +35,17 @@ export function ExerciseCard({
     initialState,
   );
 
+  // El ejercicio se cierra al acertar o al agotar los 4 intentos. En ese
+  // momento no refrescamos solos: mostramos la explicación y esperamos a
+  // que el estudiante pulse "Siguiente ejercicio".
   useEffect(() => {
-    if (
-      state.status === "correct" ||
-      state.status === "incorrect" ||
-      state.status === "locked"
-    ) {
+    if (state.status === "incorrect") {
       router.refresh();
     }
-  }, [state, router]);
+  }, [state.status, router]);
+
+  const closed =
+    locked || state.status === "correct" || state.status === "locked";
 
   return (
     <article className="card p-6">
@@ -70,7 +74,7 @@ export function ExerciseCard({
         <input type="hidden" name="exercise_id" value={exercise.id} />
 
         {exercise.type === "multiple_choice" ? (
-          <fieldset disabled={locked || pending} className="space-y-2">
+          <fieldset disabled={closed || pending} className="space-y-2">
             <legend className="sr-only">Selecciona una opción</legend>
 
             {(exercise.options ?? []).map((option, optionIndex) => (
@@ -103,7 +107,7 @@ export function ExerciseCard({
               inputMode="decimal"
               required
               autoComplete="off"
-              disabled={locked || pending}
+              disabled={closed || pending}
               className="input"
               placeholder="Escribe un número, por ejemplo 3.5"
             />
@@ -113,10 +117,14 @@ export function ExerciseCard({
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <button
             type="submit"
-            disabled={pending || locked}
+            disabled={pending || closed}
             className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pending ? "Comprobando…" : locked ? "Ejercicio cerrado" : "Comprobar respuesta"}
+            {pending
+              ? "Comprobando…"
+              : closed
+                ? "Ejercicio cerrado"
+                : "Comprobar respuesta"}
           </button>
 
           <span className="text-xs text-slate-400">
@@ -124,7 +132,11 @@ export function ExerciseCard({
               ? "Ya acertaste este ejercicio."
               : locked
                 ? "No se aceptan más respuestas en este ejercicio."
-                : `Intentos usados: ${attemptsUsed} de 4. Puntaje: 1.er intento 1,0 · 2.º 0,8 · 3.er 0,5 · 4.º 0.`}
+                : state.status === "correct"
+                  ? "Respuesta correcta. Lee la explicación y pasa al siguiente."
+                  : state.status === "locked"
+                    ? "Se agotaron los intentos. Pasa al siguiente ejercicio."
+                    : `Intentos usados: ${attemptsUsed} de 4. Puntaje: 1.er intento 1,0 · 2.º 0,8 · 3.er 0,5 · 4.º 0.`}
           </span>
         </div>
       </form>
@@ -137,6 +149,13 @@ export function ExerciseCard({
               <MathText>{state.explanation}</MathText>
             </p>
           )}
+          <button
+            type="button"
+            onClick={() => router.refresh()}
+            className="btn-primary mt-4"
+          >
+            {isLast ? "Finalizar módulo" : "Siguiente ejercicio →"}
+          </button>
         </div>
       )}
 
@@ -160,6 +179,13 @@ export function ExerciseCard({
               <MathText>{state.explanation}</MathText>
             </p>
           )}
+          <button
+            type="button"
+            onClick={() => router.refresh()}
+            className="btn-primary mt-4"
+          >
+            {isLast ? "Finalizar módulo" : "Siguiente ejercicio →"}
+          </button>
         </div>
       )}
 

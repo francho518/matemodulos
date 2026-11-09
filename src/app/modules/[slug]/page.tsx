@@ -125,6 +125,13 @@ export default async function ModulePage({ params }: Props) {
   const moduleCompleted =
     exercises.length > 0 && lockedIds.size === exercises.length;
 
+  // En los módulos sin tiempo se muestra un único ejercicio: el primero
+  // que todavía no está cerrado (ni resuelto ni con los 4 intentos usados).
+  const currentIndex = exercises.findIndex(
+    (exercise) => !lockedIds.has(exercise.id),
+  );
+  const currentExercise = currentIndex === -1 ? null : exercises[currentIndex];
+
   const attemptsExhaustedIds = exercises
     .filter((exercise) => (attemptsByExercise.get(exercise.id) ?? 0) >= 4)
     .map((exercise) => exercise.id);
@@ -226,6 +233,10 @@ export default async function ModulePage({ params }: Props) {
         </div>
 
         <p className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
+          <span className="font-semibold text-slate-700">Modo de resolución:</span>{" "}
+          verás los ejercicios de uno en uno. Al acertar o al agotar los 4
+          intentos pasarás al siguiente.
+          <br />
           <span className="font-semibold text-slate-700">Cómo se puntúa:</span>{" "}
           acierto al 1.er intento = 1,0 · 2.º intento = 0,8 · 3.er intento = 0,5
           · 4.º intento o más = 0. Cada ejercicio se cierra al acertar o al
@@ -275,19 +286,34 @@ export default async function ModulePage({ params }: Props) {
             }))}
             serverNow={serverNow}
           />
-        ) : (
-          exercises.map((exercise, index) => (
+        ) : currentExercise ? (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs font-medium text-slate-500">
+              <span>
+                Ejercicio {currentIndex + 1} de {exercises.length}
+              </span>
+              <span>
+                {lockedIds.size} de {exercises.length} cerrados
+              </span>
+            </div>
+
             <ExerciseCard
-              key={exercise.id}
-              exercise={exercise}
-              index={index}
-              solved={solvedIds.has(exercise.id)}
-              score={scores.get(exercise.id) ?? 0}
-              attemptsUsed={attemptsByExercise.get(exercise.id) ?? 0}
-              locked={lockedIds.has(exercise.id)}
+              key={currentExercise.id}
+              exercise={currentExercise}
+              index={currentIndex}
+              solved={solvedIds.has(currentExercise.id)}
+              score={scores.get(currentExercise.id) ?? 0}
+              attemptsUsed={attemptsByExercise.get(currentExercise.id) ?? 0}
+              locked={lockedIds.has(currentExercise.id)}
+              isLast={currentIndex === exercises.length - 1}
             />
-          ))
-        )}
+
+            <p className="px-1 text-xs text-slate-400">
+              Este es el único ejercicio visible. Para avanzar, acierta o agota
+              los 4 intentos.
+            </p>
+          </>
+        ) : null}
       </div>
 
       {!hasTimeLimit && moduleCompleted && (

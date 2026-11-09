@@ -38,7 +38,7 @@ export async function SiteHeader() {
             ∑
           </span>
           <span className="text-lg font-bold tracking-tight text-slate-900">
-            Mate<span className="text-indigo-600">módulos</span>
+            Mate <span className="text-indigo-600">Dual Brucke</span>
           </span>
         </Link>
 

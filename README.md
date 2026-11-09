@@ -28,6 +28,8 @@ Stack 100 % gratuito para empezar:
 - **Puntaje por intento**: acierto al 1.er intento = 1,0; 2.º = 0,8; 3.er
   = 0,5; 4.º o más = 0. Cada ejercicio se cierra al acertar o al agotar los 4
   intentos.
+- **Un ejercicio a la vez**: el estudiante ve únicamente el ejercicio que debe
+  resolver y avanza al siguiente al acertar o cerrar el actual.
 - **Grupos de estudiantes**: asigna módulos a un grupo y limita su visibilidad
   únicamente a los miembros del grupo.
 - **Exportación de notas** de un grupo en CSV compatible con Excel (nota de 0 a
@@ -66,6 +68,10 @@ Stack 100 % gratuito para empezar:
    [`supabase/seed-factorizacion.sql`](supabase/seed-factorizacion.sql) para
    cargar el módulo **Factorización** con 14 ejercicios y variantes por
    estudiante.
+5. Opcionalmente, ejecuta
+   [`supabase/seed-factorizacion-100.sql`](supabase/seed-factorizacion-100.sql)
+   para cargar el módulo **Factorización · 100 ejercicios**, con 100 ejercicios
+   cuyas respuestas son siempre números enteros.
 
 > **Si ya tenías la base de datos creada** antes de las variantes por
 > estudiante, ejecuta una vez
@@ -299,6 +305,17 @@ La nota va de **0 a 10** y se calcula sobre la selección personalizada de
 ejercicios de cada estudiante, igual que en el panel del alumno. La nota depende
 del número de intento en que se acierta (ver la sección de puntaje).
 
+### Modo de resolución: un ejercicio a la vez
+
+En los módulos sin límite de tiempo el estudiante ve **un único ejercicio** en
+pantalla: el primero que todavía no esté cerrado. Al acertar o al agotar los 4
+intentos, el ejercicio se cierra y aparece el siguiente. Después de acertar, el
+alumno puede leer la explicación y pulsar **Siguiente ejercicio**.
+
+Los módulos con límite de tiempo ya funcionaban de esta forma. En ambos casos el
+servidor controla qué ejercicio corresponde y rechaza respuestas de ejercicios
+ya cerrados.
+
 ### Puntaje por intento
 
 Cada ejercicio vale un máximo de 1 punto:
@@ -365,6 +382,28 @@ crea el tema **Factorización** con ejercicios de:
 Incluye 12 ejercicios de opción múltiple y 2 numéricos. Los estudiantes reciben
 6 ejercicios distintos cada uno.
 
+### Versión de 100 ejercicios
+
+El archivo
+[`supabase/seed-factorizacion-100.sql`](supabase/seed-factorizacion-100.sql)
+crea un módulo independiente llamado **Factorización · 100 ejercicios**
+(`/modules/factorizacion-100`) con exactamente 100 ejercicios y **todas las
+respuestas enteras**. Se corrige con respuesta numérica, sin opciones.
+
+Los ejercicios cubren:
+
+- Máximo común divisor de los coeficientes (factor común).
+- Diferencia de cuadrados: raíces, suma y producto.
+- Trinomios `x² + bx + c` con raíces enteras.
+- Trinomios cuadrados perfectos y cálculo de `k`.
+- Suma y diferencia de cubos.
+- Factorización por agrupación.
+- Aplicaciones de área, volumen y coeficientes.
+
+Por defecto el módulo muestra los 100 ejercicios completos a cada estudiante.
+Puedes cambiar la cantidad desde **Administración → Factorización · 100
+ejercicios**. Recuerda asignarlo a un grupo para que sea visible.
+
 ---
 
 ## Estructura del proyecto
@@ -375,6 +414,7 @@ math-server/
 │  ├─ schema.sql          # Tablas, roles, RLS y triggers
 │  ├─ seed.sql            # Módulo de ejemplo Álgebra básica
 │  ├─ seed-factorizacion.sql  # Módulo Factorización con variantes
+│  ├─ seed-factorizacion-100.sql  # Módulo con 100 ejercicios enteros
 │  ├─ migration-student-variants.sql  # Columnas para variantes
 │  ├─ migration-groups-timing.sql     # Grupos, notas y tiempos
 │  └─ migration-module-visibility.sql # Visibilidad estricta por grupos
