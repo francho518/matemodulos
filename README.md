@@ -72,6 +72,13 @@ Stack 100 % gratuito para empezar:
    [`supabase/seed-factorizacion-100.sql`](supabase/seed-factorizacion-100.sql)
    para cargar el módulo **Factorización · 100 ejercicios**, con 100 ejercicios
    cuyas respuestas son siempre números enteros.
+6. Opcionalmente, ejecuta
+   [`supabase/seed-trigonometria-100.sql`](supabase/seed-trigonometria-100.sql)
+   para cargar el módulo **Trigonometría · 100 ejercicios**, dedicado a
+   triángulos rectángulos y aplicaciones.
+7. Opcionalmente, ejecuta
+   [`supabase/seed-decimales-fracciones-100.sql`](supabase/seed-decimales-fracciones-100.sql)
+   para cargar el módulo **Decimales a fracciones · 100 ejercicios**.
 
 > **Si ya tenías la base de datos creada** antes de las variantes por
 > estudiante, ejecuta una vez
@@ -406,6 +413,61 @@ ejercicios**. Recuerda asignarlo a un grupo para que sea visible.
 
 ---
 
+## Módulo de Trigonometría · 100 ejercicios
+
+El archivo
+[`supabase/seed-trigonometria-100.sql`](supabase/seed-trigonometria-100.sql)
+crea el módulo **Trigonometría · 100 ejercicios**
+(`/modules/trigonometria-100`) con exactamente 100 ejercicios de **triángulos
+rectángulos**, sin figuras ni temas fuera de ese alcance.
+
+Los ejercicios cubren:
+
+- Teorema de Pitágoras: cálculo de la hipotenusa y de un cateto.
+- Razones trigonométricas a partir de los lados: seno, coseno y tangente.
+- Cálculo de lados usando seno, coseno y tangente.
+- Cálculo de ángulos con razones inversas (`arcsin`, `arccos`, `arctan`).
+- Aplicaciones de alturas, sombras, escaleras, rampas, cometas, edificios,
+  torres, aviones, faros y drones.
+
+Todas las respuestas son numéricas y cada enunciado indica el redondeo:
+
+- Longitudes: **2 decimales**.
+- Ángulos en grados: **1 decimal**.
+- Razones trigonométricas: **4 decimales**.
+
+Las tolerancias del servidor son `0,01`, `0,1` y `0,0001` respectivamente.
+El módulo entrega los 100 ejercicios completos a cada estudiante y se resuelven
+de uno en uno. Recuerda asignarlo a un grupo para que sea visible.
+
+---
+
+## Módulo de Decimales a fracciones · 100 ejercicios
+
+El archivo
+[`supabase/seed-decimales-fracciones-100.sql`](supabase/seed-decimales-fracciones-100.sql)
+crea el módulo **Decimales a fracciones · 100 ejercicios**
+(`/modules/decimales-fracciones-100`) con exactamente 100 conversiones de
+decimales simples (finitos) a **fracciones irreducibles**.
+
+Los ejercicios cubren:
+
+- Décimas: por ejemplo, `0,5 → 1/2`.
+- Centésimas: por ejemplo, `0,75 → 3/4`.
+- Milésimas: por ejemplo, `0,125 → 1/8`.
+- Valores mayores que 1: por ejemplo, `1,25 → 5/4` o `100,25 → 401/4`.
+
+Cada ejercicio es de **opción múltiple** con 4 fracciones distintas. Las
+opciones incorrectas son errores frecuentes (denominador equivocado, fracción
+sin simplificar, inversa o valor cercano), nunca fracciones equivalentes a la
+correcta. La explicación muestra el decimal como fracción de denominador
+`10`, `100` o `1000` y el factor de simplificación.
+
+El módulo entrega los 100 ejercicios completos a cada estudiante y se resuelven
+de uno en uno. Recuerda asignarlo a un grupo para que sea visible.
+
+---
+
 ## Estructura del proyecto
 
 ```text
@@ -415,6 +477,8 @@ math-server/
 │  ├─ seed.sql            # Módulo de ejemplo Álgebra básica
 │  ├─ seed-factorizacion.sql  # Módulo Factorización con variantes
 │  ├─ seed-factorizacion-100.sql  # Módulo con 100 ejercicios enteros
+│  ├─ seed-trigonometria-100.sql  # Módulo con 100 ejercicios de triángulos rectángulos
+│  ├─ seed-decimales-fracciones-100.sql  # Módulo con 100 conversiones a fracciones
 │  ├─ migration-student-variants.sql  # Columnas para variantes
 │  ├─ migration-groups-timing.sql     # Grupos, notas y tiempos
 │  └─ migration-module-visibility.sql # Visibilidad estricta por grupos

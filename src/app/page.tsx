@@ -1,33 +1,6 @@
 import Link from "next/link";
 import { MathText } from "@/components/math-text";
 
-const features = [
-  {
-    icon: "🧩",
-    title: "Temas modulares",
-    description:
-      "Cada tema es un módulo independiente. Agrega álgebra, cálculo, geometría o lo que necesites sin tocar el código.",
-  },
-  {
-    icon: "✅",
-    title: "Corrección automática",
-    description:
-      "Ejercicios de opción múltiple y respuesta numérica con tolerancia configurable y explicación de la solución.",
-  },
-  {
-    icon: "📈",
-    title: "Progreso por usuario",
-    description:
-      "Cada estudiante inicia sesión y ve su avance: ejercicios resueltos, porcentaje completado y precisión.",
-  },
-  {
-    icon: "🛠️",
-    title: "Panel de administración",
-    description:
-      "Crea módulos, publica ejercicios y gestiona el contenido desde la web, con roles de alumno y administrador.",
-  },
-];
-
 const steps = [
   {
     number: "01",
@@ -63,9 +36,7 @@ export default function HomePage() {
             </h1>
 
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-600">
-              Una plataforma modular de ejercicios con corrección automática.
-              Crea temas nuevos, invita a tus estudiantes y observa su progreso
-              desde un solo lugar.
+              Una plataforma de práctica para tus temas vistos en clases.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -136,34 +107,6 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* Características */}
-      <section className="mx-auto max-w-6xl px-4 py-20">
-        <div className="max-w-2xl">
-          <p className="text-sm font-semibold uppercase tracking-wider text-indigo-600">
-            Todo lo que necesitas
-          </p>
-          <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            Un servidor de ejercicios pensado para crecer
-          </h2>
-        </div>
-
-        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {features.map((feature) => (
-            <div key={feature.title} className="card p-6">
-              <span className="text-2xl" aria-hidden="true">
-                {feature.icon}
-              </span>
-              <h3 className="mt-4 font-semibold text-slate-900">
-                {feature.title}
-              </h3>
-              <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                {feature.description}
-              </p>
-            </div>
-          ))}
         </div>
       </section>
 
