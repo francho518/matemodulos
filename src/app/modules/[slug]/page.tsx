@@ -3,8 +3,14 @@ import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { percentage } from "@/lib/utils";
-import { selectExercisesForStudent } from "@/lib/exercise-selection";
-import { formatScore, scoreByExercise } from "@/lib/scoring";
+import {
+  MAX_ROUND_ATTEMPTS,
+  bestGradedRound,
+  buildRoundPlans,
+  currentRoundPlan,
+  statsForPlan,
+} from "@/lib/progress";
+import { formatScore } from "@/lib/scoring";
 import type {
   AttemptRow,
   ModuleRow,
@@ -56,7 +62,7 @@ export default async function ModulePage({ params }: Props) {
 
   const module = moduleData as ModuleRow;
 
-  const [exercisesResult, attemptsResult] = await Promise.all([
+  const [exercisesResult, attemptsResult, roundsResult] = await Promise.all([
     supabase
       .from("exercises")
       .select("id, prompt, type, options, order_index")
@@ -65,65 +71,53 @@ export default async function ModulePage({ params }: Props) {
       .order("created_at", { ascending: true }),
     supabase
       .from("attempts")
-      .select("exercise_id, module_id, is_correct, created_at")
+      .select("exercise_id, module_id, is_correct, created_at, round")
       .eq("user_id", user.id)
       .eq("module_id", module.id),
+    supabase
+      .from("module_rounds")
+      .select("round, exercise_ids")
+      .eq("user_id", user.id)
+      .eq("module_id", module.id)
+      .order("round", { ascending: true }),
   ]);
 
   const allExercises = (exercisesResult.data ?? []) as PublicExercise[];
+  const attempts = (attemptsResult.data ?? []) as AttemptRow[];
 
-  // Selección estable por estudiante: misma combinación en cada visita,
-  // distinta a la de los demás alumnos.
-  const exercises = selectExercisesForStudent(
-    allExercises,
-    user.id,
-    module.id,
-    Boolean(module.randomize_exercises),
-    Number(module.exercises_per_student) || 0,
-  );
+  // Ronda 1 = asignación original; 2+ = reasignaciones hechas por el
+  // docente con ejercicios diferentes.
+  const plans = buildRoundPlans({
+    exercises: allExercises,
+    userId: user.id,
+    moduleId: module.id,
+    randomize: Boolean(module.randomize_exercises),
+    exercisesPerStudent: Number(module.exercises_per_student) || 0,
+    rounds: (roundsResult.data ?? []) as Array<{
+      round: number;
+      exercise_ids: string[];
+    }>,
+  });
 
-  const assignedIds = new Set(exercises.map((exercise) => exercise.id));
+  const currentPlan = currentRoundPlan(plans);
+  const exercises = currentPlan.exercises;
 
-  const attempts = ((attemptsResult.data ?? []) as AttemptRow[]).filter(
-    (attempt) => assignedIds.has(attempt.exercise_id),
-  );
+  const roundsStats = plans.map((plan) => statsForPlan(plan, attempts));
+  const bestStats = bestGradedRound(roundsStats);
+  const stats = roundsStats[roundsStats.length - 1];
 
-  const solvedIds = new Set(
-    attempts
-      .filter((attempt) => attempt.is_correct)
-      .map((attempt) => attempt.exercise_id),
-  );
+  const solvedIds = stats.solvedIds;
+  const lockedIds = stats.lockedIds;
+  const scores = stats.scores;
+  const attemptsUsed = stats.attemptsUsed;
 
-  const scores = scoreByExercise(attempts);
-
-  const attemptsByExercise = new Map<string, number>();
-
-  for (const attempt of attempts) {
-    attemptsByExercise.set(
-      attempt.exercise_id,
-      (attemptsByExercise.get(attempt.exercise_id) ?? 0) + 1,
-    );
-  }
-
-  const totalPoints = exercises.reduce(
-    (sum, exercise) => sum + (scores.get(exercise.id) ?? 0),
-    0,
-  );
-  const maxPoints = exercises.length;
-  const grade = maxPoints > 0 ? (totalPoints / maxPoints) * 10 : 0;
-
-  const lockedIds = new Set(
-    exercises
-      .filter(
-        (exercise) =>
-          solvedIds.has(exercise.id) ||
-          (attemptsByExercise.get(exercise.id) ?? 0) >= 4,
-      )
-      .map((exercise) => exercise.id),
-  );
-
-  const moduleCompleted =
-    exercises.length > 0 && lockedIds.size === exercises.length;
+  const totalPoints = stats.points;
+  const maxPoints = stats.total;
+  const grade = stats.grade;
+  const moduleCompleted = stats.completed;
+  const isReassignment = currentPlan.round > 1;
+  const bestGrade = bestStats?.grade ?? 0;
+  const bestRound = bestStats?.round ?? 1;
 
   // En los módulos sin tiempo se muestra un único ejercicio: el primero
   // que todavía no está cerrado (ni resuelto ni con los 4 intentos usados).
@@ -133,7 +127,10 @@ export default async function ModulePage({ params }: Props) {
   const currentExercise = currentIndex === -1 ? null : exercises[currentIndex];
 
   const attemptsExhaustedIds = exercises
-    .filter((exercise) => (attemptsByExercise.get(exercise.id) ?? 0) >= 4)
+    .filter(
+      (exercise) =>
+        (attemptsUsed.get(exercise.id) ?? 0) >= MAX_ROUND_ATTEMPTS,
+    )
     .map((exercise) => exercise.id);
 
   const progress = percentage(solvedIds.size, exercises.length);
@@ -200,6 +197,13 @@ export default async function ModulePage({ params }: Props) {
               </p>
             )}
 
+            {isReassignment && (
+              <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+                <span aria-hidden="true">↻</span>
+                Reasignación {currentPlan.round} · ejercicios nuevos
+              </p>
+            )}
+
             {hasTimeLimit && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {Number(module.module_time_limit_minutes) > 0 && (
@@ -229,6 +233,11 @@ export default async function ModulePage({ params }: Props) {
             <span className="badge bg-slate-100 text-slate-700">
               Puntaje: {formatScore(totalPoints)} / {maxPoints}
             </span>
+            {plans.length > 1 && (
+              <span className="badge bg-violet-100 text-violet-700">
+                Mejor nota: {formatScore(bestGrade)} / 10
+              </span>
+            )}
           </div>
         </div>
 
@@ -255,12 +264,21 @@ export default async function ModulePage({ params }: Props) {
             />
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            Nota actual:{" "}
+            {isReassignment ? "Nota de esta reasignación:" : "Nota actual:"}{" "}
             <span className="font-semibold text-slate-700">
               {formatScore(grade)} / 10
             </span>{" "}
             ({formatScore(totalPoints)} de {maxPoints} puntos posibles)
           </p>
+          {plans.length > 1 && (
+            <p className="mt-1 text-xs text-violet-700">
+              Se conserva tu mejor nota entre todas las rondas:{" "}
+              <span className="font-semibold">
+                {formatScore(bestGrade)} / 10
+              </span>{" "}
+              (ronda {bestRound}).
+            </p>
+          )}
         </div>
       </div>
 
@@ -303,7 +321,7 @@ export default async function ModulePage({ params }: Props) {
               index={currentIndex}
               solved={solvedIds.has(currentExercise.id)}
               score={scores.get(currentExercise.id) ?? 0}
-              attemptsUsed={attemptsByExercise.get(currentExercise.id) ?? 0}
+              attemptsUsed={attemptsUsed.get(currentExercise.id) ?? 0}
               locked={lockedIds.has(currentExercise.id)}
               isLast={currentIndex === exercises.length - 1}
             />
@@ -329,7 +347,11 @@ export default async function ModulePage({ params }: Props) {
               progress === 100 ? "text-emerald-800" : "text-amber-900"
             }`}
           >
-            {progress === 100 ? "¡Módulo completado! 🎉" : "Módulo finalizado"}
+            {isReassignment
+              ? `Reasignación ${currentPlan.round} completada`
+              : progress === 100
+                ? "¡Módulo completado! 🎉"
+                : "Módulo finalizado"}
           </p>
           <p
             className={`mt-1 text-sm ${
@@ -337,11 +359,25 @@ export default async function ModulePage({ params }: Props) {
             }`}
           >
             Resolviste {solvedIds.size} de {exercises.length} ejercicios. Nota
-            final: {formatScore(grade)} / 10. Los ejercicios quedaron cerrados y
-            no se aceptan más respuestas.
+            de esta ronda: {formatScore(grade)} / 10.
+            {plans.length > 1 && (
+              <>
+                {" "}
+                Tu mejor nota se conserva:{" "}
+                <span className="font-semibold">
+                  {formatScore(bestGrade)} / 10
+                </span>
+                .
+              </>
+            )}{" "}
+            Los ejercicios quedaron cerrados y no se aceptan más respuestas.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Si tu docente te reasigna el módulo, recibirás ejercicios diferentes
+            y podrás mejorar tu nota.
           </p>
           <Link href="/dashboard" className="btn-primary mt-4">
-            Elegir otro módulo
+            Volver a mis módulos
           </Link>
         </div>
       )}

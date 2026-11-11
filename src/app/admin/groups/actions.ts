@@ -3,6 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { selectExercisesForRound } from "@/lib/exercise-selection";
+import {
+  buildRoundPlans,
+  currentRoundPlan,
+  statsForPlan,
+  type StoredRound,
+} from "@/lib/progress";
 import type { ActionState } from "@/lib/action-state";
 
 function getString(formData: FormData, key: string) {
@@ -260,4 +267,174 @@ export async function setGroupModulesAction(formData: FormData) {
   revalidatePath("/dashboard");
 
   redirect(`/admin/groups/${groupId}?ok=1`);
+}
+
+/**
+ * Reasigna un módulo a un estudiante que ya lo terminó.
+ *
+ * Crea una ronda nueva (2, 3, …) con ejercicios que el estudiante no
+ * había visto en las rondas anteriores. Los intentos de la ronda
+ * anterior se conservan, así que la mejor nota no se pierde.
+ */
+export async function reassignModuleAction(formData: FormData) {
+  const { supabase, error } = await getAdminContext();
+  const groupId = getString(formData, "group_id");
+
+  if (error) {
+    if (groupId) groupErrorRedirect(groupId, error);
+    redirect("/admin/groups?error=" + encodeURIComponent(error));
+  }
+
+  const userId = getString(formData, "user_id");
+  const moduleId = getString(formData, "module_id");
+
+  if (!groupId || !userId || !moduleId) {
+    groupErrorRedirect(groupId || "", "Faltan datos para reasignar.");
+  }
+
+  const { data: membership } = await supabase
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!membership) {
+    groupErrorRedirect(groupId, "El estudiante no pertenece a este grupo.");
+  }
+
+  const { data: moduleData } = await supabase
+    .from("modules")
+    .select("id, slug, randomize_exercises, exercises_per_student")
+    .eq("id", moduleId)
+    .maybeSingle();
+
+  if (!moduleData) {
+    groupErrorRedirect(groupId, "No se encontró el módulo.");
+  }
+
+  const [exercisesResult, roundsResult, attemptsResult, sessionResult] =
+    await Promise.all([
+      supabase
+        .from("exercises")
+        .select("id, order_index")
+        .eq("module_id", moduleId)
+        .order("order_index", { ascending: true }),
+      supabase
+        .from("module_rounds")
+        .select("round, exercise_ids")
+        .eq("user_id", userId)
+        .eq("module_id", moduleId)
+        .order("round", { ascending: true }),
+      supabase
+        .from("attempts")
+        .select("exercise_id, is_correct, created_at, round")
+        .eq("user_id", userId)
+        .eq("module_id", moduleId),
+      supabase
+        .from("module_sessions")
+        .select("expires_at")
+        .eq("user_id", userId)
+        .eq("module_id", moduleId)
+        .maybeSingle(),
+    ]);
+
+  const exercises = (exercisesResult.data ?? []) as Array<{
+    id: string;
+    order_index: number;
+  }>;
+
+  if (exercises.length === 0) {
+    groupErrorRedirect(groupId, "El módulo no tiene ejercicios.");
+  }
+
+  const rounds = (roundsResult.data ?? []) as StoredRound[];
+
+  const plans = buildRoundPlans({
+    exercises,
+    userId,
+    moduleId,
+    randomize: Boolean(moduleData.randomize_exercises),
+    exercisesPerStudent: Number(moduleData.exercises_per_student) || 0,
+    rounds,
+  });
+
+  const current = currentRoundPlan(plans);
+  const stats = statsForPlan(current, attemptsResult.data ?? []);
+
+  // Un módulo con tiempo también se considera terminado cuando el reloj
+  // venció, aunque el estudiante no haya cerrado todos los ejercicios.
+  const expiresAt = sessionResult.data?.expires_at ?? null;
+  const timeExpired = Boolean(
+    expiresAt && new Date(expiresAt).getTime() <= Date.now(),
+  );
+
+  if (!stats.completed && !timeExpired) {
+    groupErrorRedirect(
+      groupId,
+      "El estudiante todavía no ha terminado ese módulo. Solo puedes reasignarlo cuando haya cerrado todos los ejercicios o se haya agotado el tiempo.",
+    );
+  }
+
+  const nextRound =
+    rounds.reduce((max, item) => Math.max(max, item.round), 1) + 1;
+
+  const previousIds = plans.flatMap((plan) =>
+    plan.exercises.map((exercise) => exercise.id),
+  );
+
+  const selected = selectExercisesForRound(
+    exercises,
+    userId,
+    moduleId,
+    Boolean(moduleData.randomize_exercises),
+    Number(moduleData.exercises_per_student) || 0,
+    nextRound,
+    previousIds,
+  );
+
+  if (selected.length === 0) {
+    groupErrorRedirect(
+      groupId,
+      "No hay ejercicios disponibles para la reasignación.",
+    );
+  }
+
+  const previousSet = new Set(previousIds);
+  const newCount = selected.filter(
+    (exercise) => !previousSet.has(exercise.id),
+  ).length;
+
+  const { error: insertError } = await supabase
+    .from("module_rounds")
+    .insert({
+      user_id: userId,
+      module_id: moduleId,
+      round: nextRound,
+      exercise_ids: selected.map((exercise) => exercise.id),
+    });
+
+  if (insertError) {
+    groupErrorRedirect(
+      groupId,
+      insertError.code === "23505"
+        ? "Ese estudiante ya tiene una reasignación pendiente en este módulo."
+        : "No se pudo crear la reasignación.",
+    );
+  }
+
+  // En módulos con tiempo, la reasignación arranca con un reloj nuevo.
+  await supabase
+    .from("module_sessions")
+    .delete()
+    .eq("user_id", userId)
+    .eq("module_id", moduleId);
+
+  revalidatePath(`/admin/groups/${groupId}`);
+  revalidatePath("/dashboard");
+  revalidatePath(`/modules/${moduleData.slug}`);
+
+  redirect(
+    `/admin/groups/${groupId}?ok=reasignado&nuevos=${newCount}&total=${selected.length}`,
+  );
 }

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { selectExercisesForStudent } from "@/lib/exercise-selection";
-import { scoreByExercise } from "@/lib/scoring";
+import {
+  bestGradedRound,
+  buildRoundPlans,
+  currentRoundPlan,
+  statsForPlan,
+  type StoredRound,
+} from "@/lib/progress";
 import { slugify } from "@/lib/utils";
 import type { ModuleRow } from "@/lib/types";
 
@@ -19,6 +24,7 @@ type ExportAttempt = {
   exercise_id: string;
   is_correct: boolean;
   created_at: string;
+  round?: number | null;
 };
 
 type ExportExercise = {
@@ -47,6 +53,8 @@ type StudentModuleStats = {
   points: number;
   grade: number | null;
   percentage: number | null;
+  round: number;
+  reassignments: number;
 };
 
 export async function GET(
@@ -142,6 +150,12 @@ export async function GET(
 
   let exercises: ExportExercise[] = [];
   let attempts: ExportAttempt[] = [];
+  let rounds: Array<{
+    user_id: string;
+    module_id: string;
+    round: number;
+    exercise_ids: string[];
+  }> = [];
 
   if (moduleIds.length > 0) {
     const { data: exerciseData } = await supabase
@@ -152,13 +166,21 @@ export async function GET(
     exercises = (exerciseData ?? []) as ExportExercise[];
 
     if (userIds.length > 0) {
-      const { data: attemptData } = await supabase
-        .from("attempts")
-        .select("user_id, module_id, exercise_id, is_correct, created_at")
-        .in("user_id", userIds)
-        .in("module_id", moduleIds);
+      const [attemptData, roundData] = await Promise.all([
+        supabase
+          .from("attempts")
+          .select("user_id, module_id, exercise_id, is_correct, created_at, round")
+          .in("user_id", userIds)
+          .in("module_id", moduleIds),
+        supabase
+          .from("module_rounds")
+          .select("user_id, module_id, round, exercise_ids")
+          .in("user_id", userIds)
+          .in("module_id", moduleIds),
+      ]);
 
-      attempts = (attemptData ?? []) as ExportAttempt[];
+      attempts = (attemptData.data ?? []) as ExportAttempt[];
+      rounds = (roundData.data ?? []) as typeof rounds;
     }
   }
 
@@ -182,49 +204,55 @@ export async function GET(
     attemptsByStudentModule.get(key)!.push(attempt);
   }
 
+  const roundsByStudentModule = new Map<string, StoredRound[]>();
+
+  for (const row of rounds) {
+    const key = `${row.user_id}:${row.module_id}`;
+
+    if (!roundsByStudentModule.has(key)) {
+      roundsByStudentModule.set(key, []);
+    }
+    roundsByStudentModule.get(key)!.push({
+      round: row.round,
+      exercise_ids: row.exercise_ids,
+    });
+  }
+
   const statsFor = (studentId: string): StudentModuleStats[] => {
     return modules.map((module) => {
-      const assigned = selectExercisesForStudent(
-        exercisesByModule.get(module.id) ?? [],
-        studentId,
-        module.id,
-        Boolean(module.randomize_exercises),
-        Number(module.exercises_per_student) || 0,
-      );
-
-      const assignedIds = new Set(
-        assigned.map((exercise) => exercise.id),
-      );
-
       const studentAttempts =
         attemptsByStudentModule.get(`${studentId}:${module.id}`) ?? [];
 
-      const relevantAttempts = studentAttempts.filter((attempt) =>
-        assignedIds.has(attempt.exercise_id),
+      // Se evalúan todas las rondas y se exporta la mejor nota: así una
+      // reasignación nunca baja la calificación ya obtenida.
+      const plans = buildRoundPlans({
+        exercises: exercisesByModule.get(module.id) ?? [],
+        userId: studentId,
+        moduleId: module.id,
+        randomize: Boolean(module.randomize_exercises),
+        exercisesPerStudent: Number(module.exercises_per_student) || 0,
+        rounds: roundsByStudentModule.get(`${studentId}:${module.id}`) ?? [],
+      });
+
+      const roundStats = plans.map((plan) =>
+        statsForPlan(plan, studentAttempts),
       );
 
-      const solved = new Set(
-        relevantAttempts
-          .filter((attempt) => attempt.is_correct)
-          .map((attempt) => attempt.exercise_id),
-      );
+      const current = currentRoundPlan(plans);
+      const best = bestGradedRound(roundStats);
 
-      const scores = scoreByExercise(relevantAttempts);
-
-      const total = assigned.length;
-      const solvedCount = solved.size;
-      const points = assigned.reduce(
-        (sum, exercise) => sum + (scores.get(exercise.id) ?? 0),
-        0,
-      );
+      const total = best?.total ?? 0;
+      const points = best?.points ?? 0;
 
       return {
         module,
         total,
-        solved: solvedCount,
+        solved: best?.solved ?? 0,
         points,
-        grade: total > 0 ? (points / total) * 10 : null,
+        grade: best?.grade ?? null,
         percentage: total > 0 ? (points / total) * 100 : null,
+        round: current.round,
+        reassignments: Math.max(0, plans.length - 1),
       };
     });
   };
@@ -244,6 +272,8 @@ export async function GET(
         "Puntaje máximo",
         "Nota (0-10)",
         "Porcentaje (%)",
+        "Reasignaciones",
+        "Ronda actual",
       ]
         .map(csvText)
         .join(";"),
@@ -265,6 +295,8 @@ export async function GET(
             stats.percentage === null
               ? ""
               : csvDecimal(stats.percentage),
+            csvNumber(stats.reassignments),
+            csvNumber(stats.round),
           ].join(";"),
         );
       }

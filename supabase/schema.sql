@@ -431,10 +431,21 @@ create table if not exists public.attempts (
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   module_id uuid not null references public.modules (id) on delete cascade,
   exercise_id uuid not null references public.exercises (id) on delete cascade,
+  round integer not null default 1,  -- ronda: 1 = original, 2+ = reasignación
   answer jsonb not null,
   is_correct boolean not null,
   created_at timestamptz not null default now()
 );
+
+-- Migración para bases de datos creadas antes de las reasignaciones.
+alter table public.attempts
+  add column if not exists round integer not null default 1;
+
+alter table public.attempts
+  drop constraint if exists attempts_round_check;
+
+alter table public.attempts
+  add constraint attempts_round_check check (round >= 1);
 
 alter table public.attempts enable row level security;
 
@@ -452,6 +463,44 @@ create policy "attempts_insert"
     user_id = auth.uid()
     and (public.is_admin() or public.can_access_module(module_id))
   );
+
+-- ------------------------------------------------------------
+-- 6b. REASIGNACIONES / RONDAS
+-- ------------------------------------------------------------
+-- La ronda 1 es la asignación original (no se guarda aquí). Cada
+-- reasignación crea una fila con los ejercicios que verá el
+-- estudiante en esa ronda. La mejor nota se calcula entre rondas.
+create table if not exists public.module_rounds (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  module_id uuid not null references public.modules (id) on delete cascade,
+  round integer not null,
+  exercise_ids uuid[] not null default '{}',
+  assigned_by uuid default auth.uid() references auth.users (id) on delete set null,
+  assigned_at timestamptz not null default now(),
+  constraint module_rounds_round_check check (round >= 2),
+  constraint module_rounds_unique unique (user_id, module_id, round)
+);
+
+alter table public.module_rounds enable row level security;
+
+drop policy if exists "module_rounds_select" on public.module_rounds;
+create policy "module_rounds_select"
+  on public.module_rounds for select
+  to authenticated
+  using (user_id = auth.uid() or public.is_admin());
+
+drop policy if exists "module_rounds_admin_insert" on public.module_rounds;
+create policy "module_rounds_admin_insert"
+  on public.module_rounds for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "module_rounds_admin_delete" on public.module_rounds;
+create policy "module_rounds_admin_delete"
+  on public.module_rounds for delete
+  to authenticated
+  using (public.is_admin());
 
 -- ------------------------------------------------------------
 -- 7. SESIONES CON TIEMPO LIMITADO
@@ -575,6 +624,12 @@ create index if not exists idx_attempts_exercise
 
 create index if not exists idx_attempts_user_exercise
   on public.attempts (user_id, exercise_id, created_at);
+
+create index if not exists idx_attempts_round
+  on public.attempts (user_id, module_id, round);
+
+create index if not exists idx_module_rounds_student
+  on public.module_rounds (user_id, module_id, round);
 
 create index if not exists idx_group_members_user
   on public.group_members (user_id);

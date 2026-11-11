@@ -56,6 +56,30 @@ async function getModuleTiming(
   return (data as ModuleTiming | null) ?? null;
 }
 
+/**
+ * Ronda que el estudiante está resolviendo: 1 = asignación original,
+ * 2 o más = reasignación. Se lee del servidor para que el cliente no
+ * pueda falsificarla.
+ */
+async function getCurrentRound(
+  supabase: SupabaseServerClient,
+  userId: string,
+  moduleId: string,
+): Promise<number> {
+  const { data } = await supabase
+    .from("module_rounds")
+    .select("round")
+    .eq("user_id", userId)
+    .eq("module_id", moduleId)
+    .order("round", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const round = Number(data?.round ?? 1);
+
+  return Number.isFinite(round) && round >= 1 ? round : 1;
+}
+
 async function ensureModuleSession(
   supabase: SupabaseServerClient,
   userId: string,
@@ -223,10 +247,13 @@ async function closeQuestionWithTimeout(
 
   if (!updated || updated.length === 0) return;
 
+  const round = await getCurrentRound(supabase, userId, moduleId);
+
   await supabase.from("attempts").insert({
     user_id: userId,
     module_id: moduleId,
     exercise_id: exerciseId,
+    round,
     answer: { timeout: true },
     is_correct: false,
   });
@@ -632,6 +659,50 @@ export async function submitAttempt(
   let answer: Record<string, unknown>;
   let isCorrect = false;
 
+  // Ronda actual del estudiante: 1 = asignación original y 2+ = una
+  // reasignación. Cada ronda tiene sus propios intentos y su nota.
+  const { data: currentRoundRow } = await supabase
+    .from("module_rounds")
+    .select("round, exercise_ids")
+    .eq("user_id", user.id)
+    .eq("module_id", exercise.module_id)
+    .order("round", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let currentRound = Number(currentRoundRow?.round ?? 1) || 1;
+
+  // Si el docente reasignó el módulo mientras el estudiante tenía la
+  // página abierta, no se acepta una respuesta de una ronda anterior.
+  const currentRoundIds = (currentRoundRow?.exercise_ids ?? []) as string[];
+
+  if (currentRound > 1) {
+    // Si el banco de ejercicios se regeneró, los IDs de la ronda pueden
+    // haber desaparecido. En ese caso la reasignación ya no aplica y se
+    // vuelve a la asignación original (ronda 1).
+    const { data: existingRoundExercises } =
+      currentRoundIds.length > 0
+        ? await supabase
+            .from("exercises")
+            .select("id")
+            .in("id", currentRoundIds)
+        : { data: [] as Array<{ id: string }> };
+
+    const alive = new Set(
+      (existingRoundExercises ?? []).map((row) => row.id),
+    );
+
+    if (alive.size === 0) {
+      currentRound = 1;
+    } else if (!alive.has(exercise.id)) {
+      return {
+        status: "locked",
+        message:
+          "Tu módulo fue reasignado con ejercicios nuevos. Recarga la página para continuar.",
+      };
+    }
+  }
+
   // Un ejercicio ya resuelto o con los 4 intentos usados queda cerrado:
   // no se aceptan más respuestas.
   const { data: previousAttemptRows } = await supabase
@@ -639,6 +710,7 @@ export async function submitAttempt(
     .select("id, is_correct, created_at")
     .eq("user_id", user.id)
     .eq("exercise_id", exercise.id)
+    .eq("round", currentRound)
     .order("created_at", { ascending: true });
 
   const previousAttempts = previousAttemptRows ?? [];
@@ -701,11 +773,13 @@ export async function submitAttempt(
     isCorrect = Math.abs(value - correct) <= margin;
   }
 
-  // Guardamos el intento; su número define el puntaje del acierto.
+  // Guardamos el intento; su número define el puntaje del acierto y
+  // la ronda permite separar la nota original de las reasignaciones.
   const { error: insertError } = await supabase.from("attempts").insert({
     user_id: user.id,
     module_id: exercise.module_id,
     exercise_id: exercise.id,
+    round: currentRound,
     answer,
     is_correct: isCorrect,
   });

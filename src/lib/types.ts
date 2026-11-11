@@ -35,6 +35,17 @@ export type AttemptRow = {
   module_id: string;
   is_correct: boolean;
   created_at: string;
+  round?: number | null;
+};
+
+export type ModuleRoundRow = {
+  id: string;
+  user_id: string;
+  module_id: string;
+  round: number;
+  exercise_ids: string[];
+  assigned_by: string | null;
+  assigned_at: string;
 };
 
 export type ProfileRow = {

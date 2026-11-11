@@ -34,6 +34,9 @@ Stack 100 % gratuito para empezar:
   únicamente a los miembros del grupo.
 - **Exportación de notas** de un grupo en CSV compatible con Excel (nota de 0 a
   10, puntaje y porcentaje).
+- **Reasignaciones**: cuando un estudiante termina un módulo, el docente puede
+  reasignárselo con ejercicios diferentes y se conserva la mejor nota entre
+  rondas.
 - **Límites de tiempo** opcionales por módulo y por pregunta, controlados en el
   servidor.
 - Fórmulas matemáticas con sintaxis LaTeX: `$x^2 + 1$` o `$$...$$`.
@@ -95,6 +98,10 @@ Stack 100 % gratuito para empezar:
 > [`supabase/migration-module-visibility.sql`](supabase/migration-module-visibility.sql).
 > A partir de ese cambio, un módulo que no esté asignado a ningún grupo no lo ve
 > ningún estudiante.
+>
+> **Reasignaciones (obligatorio si ya tenías la base creada):** ejecuta
+> [`supabase/migration-reasignaciones.sql`](supabase/migration-reasignaciones.sql).
+> Agrega la ronda de cada intento y la tabla `module_rounds`. No borra datos.
 
 ### 3. Obtener las claves
 
@@ -280,6 +287,43 @@ estudiante. Puedes ajustar esos valores desde **Administración → Factorizaci�
 
 ---
 
+## Reasignaciones con ejercicios diferentes
+
+Cuando un estudiante ya terminó un módulo, puedes reasignárselo con ejercicios
+que no había visto. La primera nota no se pierde: **se conserva la mejor**.
+
+### Cómo funciona
+
+1. Entra a **Administración → Grupos → (tu grupo)**.
+2. En la tarjeta **Progreso y reasignaciones** busca al estudiante y el módulo.
+3. Cuando el módulo aparezca como **completado**, pulsa **↻ Reasignar**.
+4. El estudiante verá la **ronda 2** con ejercicios nuevos.
+
+Cada reasignación crea una **ronda** nueva (2, 3, 4, …):
+
+- Los intentos se guardan por ronda (`attempts.round`), así que cada
+  reasignación empieza de cero.
+- La ronda se crea con los ejercicios que el estudiante **no había visto** en
+  las rondas anteriores.
+- La nota del módulo es la **mejor entre todas las rondas**. El panel del
+  estudiante, la portada del módulo y las planillas CSV muestran esa mejor nota.
+- Las reasignaciones solo se pueden crear cuando el estudiante **cerró todos
+  los ejercicios** de la ronda actual (acertó o agotó los 4 intentos) o cuando
+  se agotó el tiempo del módulo.
+- En módulos con límite de tiempo, la reasignación **reinicia el reloj**.
+
+> **Para que los ejercicios sean realmente diferentes**, el módulo debe tener
+> más ejercicios en el banco que los asignados a cada estudiante (por ejemplo,
+> 100 en el banco y 40 por estudiante). Si el módulo entrega **todo el banco**,
+> no quedan ejercicios nuevos y la reasignación repite los mismos en una ronda
+> nueva. Configúralo en **Administración → (módulo) → Ejercicios por
+> estudiante**.
+
+La tabla `module_rounds` guarda qué ejercicios recibió cada estudiante en cada
+ronda. Los administradores son los únicos que pueden crearlas.
+
+---
+
 ## Grupos y exportación de notas
 
 En **Administración → Grupos** puedes crear grupos (por ejemplo, `3.º A`) y:
@@ -423,22 +467,29 @@ rectángulos**, sin figuras ni temas fuera de ese alcance.
 
 Los ejercicios cubren:
 
-- Teorema de Pitágoras: cálculo de la hipotenusa y de un cateto.
-- Razones trigonométricas a partir de los lados: seno, coseno y tangente.
-- Cálculo de lados usando seno, coseno y tangente.
-- Cálculo de ángulos con razones inversas (`arcsin`, `arccos`, `arctan`).
-- Aplicaciones de alturas, sombras, escaleras, rampas, cometas, edificios,
-  torres, aviones, faros y drones.
+- **Un** ejercicio de teorema de Pitágoras (escalera apoyada en una pared).
+- **99 aplicaciones** con triángulos rectángulos:
+  - Alturas de árboles, edificios, torres, faros, monumentos y otros objetos
+    usando el ángulo de elevación.
+  - Sombras y altura del Sol.
+  - Longitud de cables, cuerdas y escaleras.
+  - Distancias horizontales con ángulos de depresión (aviones, drones, globos).
+  - Cálculo de ángulos con razones inversas (`arcsin`, `arccos`, `arctan`).
+  - Rampas, carreteras, cuestas y pistas.
+  - Problemas variados de ríos, nubes, cometas y aeropuertos.
 
 Todas las respuestas son numéricas y cada enunciado indica el redondeo:
 
 - Longitudes: **2 decimales**.
 - Ángulos en grados: **1 decimal**.
-- Razones trigonométricas: **4 decimales**.
 
-Las tolerancias del servidor son `0,01`, `0,1` y `0,0001` respectivamente.
+Las tolerancias del servidor son `0,01` y `0,1` respectivamente.
 El módulo entrega los 100 ejercicios completos a cada estudiante y se resuelven
 de uno en uno. Recuerda asignarlo a un grupo para que sea visible.
+
+> **Importante:** este seed **reemplaza** el banco anterior del módulo. Al
+> eliminar los ejercicios anteriores se borran en cascada los intentos y el
+> progreso de los estudiantes en este módulo.
 
 ---
 
@@ -481,7 +532,8 @@ math-server/
 │  ├─ seed-decimales-fracciones-100.sql  # Módulo con 100 conversiones a fracciones
 │  ├─ migration-student-variants.sql  # Columnas para variantes
 │  ├─ migration-groups-timing.sql     # Grupos, notas y tiempos
-│  └─ migration-module-visibility.sql # Visibilidad estricta por grupos
+│  ├─ migration-module-visibility.sql # Visibilidad estricta por grupos
+│  └─ migration-reasignaciones.sql    # Rondas y mejor nota
 ├─ src/
 │  ├─ app/
 │  │  ├─ (auth)/          # Login, registro y Server Actions de sesión
@@ -509,6 +561,7 @@ math-server/
 | `modules`           | Temas, variantes y límites de tiempo.                          |
 | `exercises`         | Ejercicios de un módulo, con su respuesta correcta.            |
 | `attempts`          | Intentos de cada usuario (orden y base del puntaje y las notas). |
+| `module_rounds`     | Ejercicios de cada reasignación (rondas 2 en adelante).         |
 | `groups`            | Grupos de estudiantes.                                         |
 | `group_members`     | Estudiantes que pertenecen a cada grupo.                       |
 | `group_modules`     | Módulos asignados a cada grupo (controlan la visibilidad).     |

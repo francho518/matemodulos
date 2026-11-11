@@ -2,20 +2,34 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
-import { firstParam } from "@/lib/utils";
+import { firstParam, percentage } from "@/lib/utils";
+import { formatScore } from "@/lib/scoring";
+import {
+  bestGradedRound,
+  buildRoundPlans,
+  currentRoundPlan,
+  statsForPlan,
+  type StoredRound,
+} from "@/lib/progress";
 import type { GroupRow, ModuleRow, ProfileRow } from "@/lib/types";
 import { GroupForm } from "@/components/admin/group-form";
 import { ConfirmButton } from "@/components/confirm-button";
 import {
   addGroupMemberAction,
   deleteGroupAction,
+  reassignModuleAction,
   removeGroupMemberAction,
   setGroupModulesAction,
 } from "@/app/admin/groups/actions";
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ ok?: string | string[]; error?: string | string[] }>;
+  searchParams: Promise<{
+    ok?: string | string[];
+    error?: string | string[];
+    nuevos?: string | string[];
+    total?: string | string[];
+  }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -35,6 +49,8 @@ export default async function GroupDetailPage({ params, searchParams }: Props) {
   const query = await searchParams;
   const ok = firstParam(query.ok);
   const errorMessage = firstParam(query.error);
+  const newExercises = Number(firstParam(query.nuevos) ?? 0) || 0;
+  const totalExercises = Number(firstParam(query.total) ?? 0) || 0;
 
   const supabase = await createClient();
 
@@ -64,7 +80,9 @@ export default async function GroupDetailPage({ params, searchParams }: Props) {
         .order("full_name", { ascending: true }),
       supabase
         .from("modules")
-        .select("id, title, slug, order_index, is_published")
+        .select(
+          "id, title, slug, order_index, is_published, randomize_exercises, exercises_per_student",
+        )
         .order("order_index", { ascending: true })
         .order("created_at", { ascending: true }),
       supabase
@@ -106,17 +124,159 @@ export default async function GroupDetailPage({ params, searchParams }: Props) {
   );
 
   const modules = (modulesResult.data ?? []) as Array<
-    Pick<ModuleRow, "id" | "title" | "slug" | "order_index" | "is_published">
+    Pick<
+      ModuleRow,
+      | "id"
+      | "title"
+      | "slug"
+      | "order_index"
+      | "is_published"
+      | "randomize_exercises"
+      | "exercises_per_student"
+    >
   >;
   const assignedModuleIds = new Set(
     (assignedResult.data ?? []).map((row) => row.module_id),
   );
 
+  const assignedModules = modules.filter((module) =>
+    assignedModuleIds.has(module.id),
+  );
+
+  // Progreso por estudiante y módulo, con la ronda actual y la mejor
+  // nota entre la asignación original y sus reasignaciones.
+  const progressByStudentModule = new Map<
+    string,
+    {
+      total: number;
+      solved: number;
+      completed: boolean;
+      timeExpired: boolean;
+      grade: number;
+      bestGrade: number;
+      round: number;
+    }
+  >();
+
+  if (memberIds.length > 0 && assignedModules.length > 0) {
+    const assignedModuleIdList = assignedModules.map((module) => module.id);
+
+    const [exercisesResult, progressAttemptsResult, roundsResult, sessionsResult] =
+      await Promise.all([
+        supabase
+          .from("exercises")
+          .select("id, module_id, order_index")
+          .in("module_id", assignedModuleIdList),
+        supabase
+          .from("attempts")
+          .select("user_id, module_id, exercise_id, is_correct, created_at, round")
+          .in("user_id", memberIds)
+          .in("module_id", assignedModuleIdList),
+        supabase
+          .from("module_rounds")
+          .select("user_id, module_id, round, exercise_ids")
+          .in("user_id", memberIds)
+          .in("module_id", assignedModuleIdList),
+        supabase
+          .from("module_sessions")
+          .select("user_id, module_id, expires_at")
+          .in("user_id", memberIds)
+          .in("module_id", assignedModuleIdList),
+      ]);
+
+    const expiredSessionKeys = new Set<string>();
+
+    for (const session of sessionsResult.data ?? []) {
+      if (
+        session.expires_at &&
+        new Date(session.expires_at).getTime() <= Date.now()
+      ) {
+        expiredSessionKeys.add(`${session.user_id}:${session.module_id}`);
+      }
+    }
+
+    const exercisesByModule = new Map<
+      string,
+      Array<{ id: string; order_index: number }>
+    >();
+
+    for (const exercise of exercisesResult.data ?? []) {
+      const list = exercisesByModule.get(exercise.module_id) ?? [];
+      list.push({ id: exercise.id, order_index: exercise.order_index });
+      exercisesByModule.set(exercise.module_id, list);
+    }
+
+    const attemptsByStudentModule = new Map<
+      string,
+      Array<{
+        exercise_id: string;
+        is_correct: boolean;
+        created_at: string;
+        round: number | null;
+      }>
+    >();
+
+    for (const attempt of progressAttemptsResult.data ?? []) {
+      const key = `${attempt.user_id}:${attempt.module_id}`;
+      const list = attemptsByStudentModule.get(key) ?? [];
+      list.push({
+        exercise_id: attempt.exercise_id,
+        is_correct: attempt.is_correct,
+        created_at: attempt.created_at,
+        round: attempt.round,
+      });
+      attemptsByStudentModule.set(key, list);
+    }
+
+    const roundsByStudentModule = new Map<string, StoredRound[]>();
+
+    for (const row of roundsResult.data ?? []) {
+      const key = `${row.user_id}:${row.module_id}`;
+      const list = roundsByStudentModule.get(key) ?? [];
+      list.push({ round: row.round, exercise_ids: row.exercise_ids });
+      roundsByStudentModule.set(key, list);
+    }
+
+    for (const memberId of memberIds) {
+      for (const module of assignedModules) {
+        const key = `${memberId}:${module.id}`;
+
+        const plans = buildRoundPlans({
+          exercises: exercisesByModule.get(module.id) ?? [],
+          userId: memberId,
+          moduleId: module.id,
+          randomize: Boolean(module.randomize_exercises),
+          exercisesPerStudent: Number(module.exercises_per_student) || 0,
+          rounds: roundsByStudentModule.get(key) ?? [],
+        });
+
+        const attempts = attemptsByStudentModule.get(key) ?? [];
+
+        const roundStats = plans.map((plan) => statsForPlan(plan, attempts));
+        const current = currentRoundPlan(plans);
+        const stats = roundStats[roundStats.length - 1];
+        const best = bestGradedRound(roundStats);
+
+        progressByStudentModule.set(key, {
+          total: stats.total,
+          solved: stats.solved,
+          completed: stats.completed,
+          timeExpired: expiredSessionKeys.has(key),
+          grade: stats.grade,
+          bestGrade: best?.grade ?? stats.grade,
+          round: current.round,
+        });
+      }
+    }
+  }
+
   return (
     <div className="space-y-8">
       {ok && (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          Cambios guardados correctamente.
+          {ok === "reasignado"
+            ? `Reasignación creada con ${newExercises} de ${totalExercises} ejercicios nuevos. Se conservará la mejor nota del estudiante.`
+            : "Cambios guardados correctamente."}
         </p>
       )}
 
@@ -311,6 +471,140 @@ export default async function GroupDetailPage({ params, searchParams }: Props) {
             Guardar módulos asignados
           </button>
         </form>
+      </div>
+
+      <div className="card p-6">
+        <h3 className="text-lg font-bold text-slate-900">
+          Progreso y reasignaciones
+        </h3>
+        <p className="mt-1 max-w-3xl text-sm text-slate-500">
+          Cuando un estudiante termina un módulo puedes reasignarlo con
+          ejercicios diferentes. Los intentos anteriores se conservan y se deja
+          la mejor nota entre la primera vuelta y la reasignación.
+        </p>
+
+        {members.length === 0 ? (
+          <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+            Agrega estudiantes al grupo para ver su progreso.
+          </p>
+        ) : assignedModules.length === 0 ? (
+          <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+            Asigna al menos un módulo al grupo para ver el progreso.
+          </p>
+        ) : (
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                  <th className="py-3 pr-4 font-semibold">Estudiante</th>
+                  {assignedModules.map((module) => (
+                    <th
+                      key={module.id}
+                      className="px-3 py-3 font-semibold align-bottom"
+                    >
+                      {module.title}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((member) => (
+                  <tr
+                    key={member.id}
+                    className="border-b border-slate-100 align-top last:border-0"
+                  >
+                    <td className="py-4 pr-4">
+                      <p className="font-medium text-slate-800">{member.name}</p>
+                      <p className="text-xs text-slate-500">{member.email}</p>
+                    </td>
+
+                    {assignedModules.map((module) => {
+                      const status = progressByStudentModule.get(
+                        `${member.id}:${module.id}`,
+                      );
+
+                      if (!status || status.total === 0) {
+                        return (
+                          <td
+                            key={module.id}
+                            className="px-3 py-4 text-xs text-slate-400"
+                          >
+                            Sin ejercicios
+                          </td>
+                        );
+                      }
+
+                      const finished = status.completed || status.timeExpired;
+
+                      return (
+                        <td key={module.id} className="px-3 py-4">
+                          <p className="text-xs font-semibold text-slate-600">
+                            {status.round > 1
+                              ? `Reasignación ${status.round}`
+                              : "Primera vuelta"}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {status.solved} de {status.total} resueltos ·{" "}
+                            {percentage(status.solved, status.total)}%
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {status.completed
+                              ? `Nota ${formatScore(status.grade)} / 10`
+                              : status.timeExpired
+                                ? `Tiempo agotado · Nota ${formatScore(status.grade)} / 10`
+                                : "En curso"}
+                          </p>
+                          {status.round > 1 && (
+                            <p className="mt-0.5 text-xs font-medium text-violet-700">
+                              Mejor nota: {formatScore(status.bestGrade)} / 10
+                            </p>
+                          )}
+
+                          {finished ? (
+                            <form action={reassignModuleAction} className="mt-2">
+                              <input
+                                type="hidden"
+                                name="group_id"
+                                value={group.id}
+                              />
+                              <input
+                                type="hidden"
+                                name="user_id"
+                                value={member.id}
+                              />
+                              <input
+                                type="hidden"
+                                name="module_id"
+                                value={module.id}
+                              />
+                              <ConfirmButton
+                                message={`¿Reasignar "${module.title}" a ${member.name} con ejercicios diferentes? Se conservará la mejor nota.`}
+                                className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-500"
+                              >
+                                ↻ Reasignar
+                              </ConfirmButton>
+                            </form>
+                          ) : (
+                            <span className="mt-2 inline-block text-xs text-slate-400">
+                              Se habilita al terminar
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <p className="mt-4 text-xs text-slate-400">
+          Para que una reasignación tenga ejercicios realmente distintos, el
+          módulo debe entregar menos ejercicios que el total de su banco
+          (configúralo en “Ejercicios por estudiante”). Si entrega todo el
+          banco, se repetirán los mismos ejercicios en una ronda nueva.
+        </p>
       </div>
 
       <div className="card border-red-200 p-6">

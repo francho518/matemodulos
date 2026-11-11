@@ -3,8 +3,14 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { percentage } from "@/lib/utils";
-import { selectExercisesForStudent } from "@/lib/exercise-selection";
-import { formatScore, scoreByExercise } from "@/lib/scoring";
+import {
+  bestGradedRound,
+  buildRoundPlans,
+  currentRoundPlan,
+  statsForPlan,
+  type StoredRound,
+} from "@/lib/progress";
+import { formatScore } from "@/lib/scoring";
 import type { AttemptRow, ModuleRow, ProfileRow } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -22,7 +28,7 @@ export default async function DashboardPage() {
     redirect("/login?redirectTo=/dashboard");
   }
 
-  const [profileResult, modulesResult, exercisesResult, attemptsResult] =
+  const [profileResult, modulesResult, exercisesResult, attemptsResult, roundsResult] =
     await Promise.all([
       supabase
         .from("profiles")
@@ -38,7 +44,11 @@ export default async function DashboardPage() {
       supabase.from("exercises").select("id, module_id, order_index"),
       supabase
         .from("attempts")
-        .select("exercise_id, module_id, is_correct, created_at")
+        .select("exercise_id, module_id, is_correct, created_at, round")
+        .eq("user_id", user.id),
+      supabase
+        .from("module_rounds")
+        .select("module_id, round, exercise_ids")
         .eq("user_id", user.id),
     ]);
 
@@ -68,76 +78,86 @@ export default async function DashboardPage() {
     exercisesByModule.get(exercise.module_id)!.push(exercise);
   }
 
+  const roundsByModule = new Map<string, StoredRound[]>();
+
+  for (const row of (roundsResult.data ?? []) as Array<{
+    module_id: string;
+    round: number;
+    exercise_ids: string[];
+  }>) {
+    if (!publishedModuleIds.has(row.module_id)) continue;
+
+    const list = roundsByModule.get(row.module_id) ?? [];
+    list.push({ round: row.round, exercise_ids: row.exercise_ids });
+    roundsByModule.set(row.module_id, list);
+  }
+
   const totalByModule = new Map<string, number>();
-  const assignedIdsByModule = new Map<string, Set<string>>();
+  const solvedByModule = new Map<string, number>();
+  const pointsByModule = new Map<string, number>();
+  const bestGradeByModule = new Map<string, number>();
+  const roundByModule = new Map<string, number>();
+
   let totalExercises = 0;
+  let totalSolved = 0;
+  let totalPoints = 0;
+  let roundAttempts = 0;
+  let roundCorrect = 0;
+  let bestGradeSum = 0;
+  let gradedModules = 0;
 
   for (const module of modules) {
-    const assigned = selectExercisesForStudent(
-      exercisesByModule.get(module.id) ?? [],
-      user.id,
-      module.id,
-      Boolean(module.randomize_exercises),
-      Number(module.exercises_per_student) || 0,
+    const moduleExercises = exercisesByModule.get(module.id) ?? [];
+
+    const plans = buildRoundPlans({
+      exercises: moduleExercises,
+      userId: user.id,
+      moduleId: module.id,
+      randomize: Boolean(module.randomize_exercises),
+      exercisesPerStudent: Number(module.exercises_per_student) || 0,
+      rounds: roundsByModule.get(module.id) ?? [],
+    });
+
+    const current = currentRoundPlan(plans);
+    const roundStats = plans.map((plan) => statsForPlan(plan, attempts));
+    const stats = roundStats[roundStats.length - 1];
+    const best = bestGradedRound(roundStats);
+
+    const assignedIds = new Set(
+      current.exercises.map((exercise) => exercise.id),
+    );
+    const currentAttempts = attempts.filter(
+      (attempt) =>
+        attempt.module_id === module.id &&
+        Number(attempt.round ?? 1) === current.round &&
+        assignedIds.has(attempt.exercise_id),
     );
 
-    assignedIdsByModule.set(
-      module.id,
-      new Set(assigned.map((exercise) => exercise.id)),
-    );
-    totalByModule.set(module.id, assigned.length);
-    totalExercises += assigned.length;
-  }
+    totalByModule.set(module.id, stats.total);
+    solvedByModule.set(module.id, stats.solved);
+    pointsByModule.set(module.id, stats.points);
+    bestGradeByModule.set(module.id, best?.grade ?? 0);
+    roundByModule.set(module.id, current.round);
 
-  const relevantAttempts = attempts.filter((attempt) =>
-    assignedIdsByModule.get(attempt.module_id)?.has(attempt.exercise_id),
-  );
+    totalExercises += stats.total;
+    totalSolved += stats.solved;
+    totalPoints += stats.points;
+    roundAttempts += currentAttempts.length;
+    roundCorrect += currentAttempts.filter((attempt) => attempt.is_correct)
+      .length;
 
-  const solvedByModule = new Map<string, Set<string>>();
-  const solvedExercises = new Set<string>();
-
-  for (const attempt of relevantAttempts) {
-    if (!attempt.is_correct) continue;
-
-    solvedExercises.add(attempt.exercise_id);
-
-    if (!solvedByModule.has(attempt.module_id)) {
-      solvedByModule.set(attempt.module_id, new Set());
+    if (stats.total > 0) {
+      bestGradeSum += best?.grade ?? 0;
+      gradedModules += 1;
     }
-    solvedByModule.get(attempt.module_id)!.add(attempt.exercise_id);
   }
 
-  const totalSolved = solvedExercises.size;
-
-  const scores = scoreByExercise(relevantAttempts);
-
-  const moduleIdByExercise = new Map(
-    exercises.map((exercise) => [exercise.id, exercise.module_id]),
-  );
-
-  const pointsByModule = new Map<string, number>();
-
-  for (const [exerciseId, score] of scores) {
-    const moduleId = moduleIdByExercise.get(exerciseId);
-    if (!moduleId) continue;
-
-    pointsByModule.set(moduleId, (pointsByModule.get(moduleId) ?? 0) + score);
-  }
-
-  const totalPoints = Array.from(pointsByModule.values()).reduce(
-    (sum, points) => sum + points,
-    0,
-  );
-  const overallGrade =
-    totalExercises > 0 ? (totalPoints / totalExercises) * 10 : 0;
-
-  const correctAttempts = relevantAttempts.filter(
-    (attempt) => attempt.is_correct,
-  ).length;
+  // La nota global promedia la mejor nota de cada módulo, de modo que
+  // una reasignación con mejor resultado sube la nota sin perder la
+  // primera ronda.
+  const overallGrade = gradedModules > 0 ? bestGradeSum / gradedModules : 0;
   const accuracy =
-    relevantAttempts.length > 0
-      ? Math.round((correctAttempts / relevantAttempts.length) * 100)
-      : 0;
+    roundAttempts > 0 ? Math.round((roundCorrect / roundAttempts) * 100) : 0;
 
   const displayName =
     profile?.full_name ?? user.email?.split("@")[0] ?? "estudiante";
@@ -200,8 +220,8 @@ export default async function DashboardPage() {
           <p className="text-sm font-medium text-slate-500">Precisión</p>
           <p className="mt-2 text-3xl font-bold text-slate-900">{accuracy}%</p>
           <p className="mt-1 text-xs text-slate-400">
-            {relevantAttempts.length} intento
-            {relevantAttempts.length === 1 ? "" : "s"} en total
+            {roundAttempts} intento{roundAttempts === 1 ? "" : "s"} en la ronda
+            actual
           </p>
         </div>
       </div>
@@ -229,9 +249,10 @@ export default async function DashboardPage() {
         <div className="mt-4 grid gap-5 md:grid-cols-2">
           {modules.map((module) => {
             const total = totalByModule.get(module.id) ?? 0;
-            const solved = solvedByModule.get(module.id)?.size ?? 0;
+            const solved = solvedByModule.get(module.id) ?? 0;
             const points = pointsByModule.get(module.id) ?? 0;
-            const moduleGrade = total > 0 ? (points / total) * 10 : 0;
+            const grade = bestGradeByModule.get(module.id) ?? 0;
+            const round = roundByModule.get(module.id) ?? 1;
             const progress = percentage(solved, total);
 
             return (
@@ -248,6 +269,12 @@ export default async function DashboardPage() {
                     <p className="mt-1 line-clamp-2 text-sm text-slate-600">
                       {module.description ?? "Sin descripción."}
                     </p>
+
+                    {round > 1 && (
+                      <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700">
+                        ↻ Reasignación {round}
+                      </span>
+                    )}
 
                     {(module.module_time_limit_minutes ||
                       module.question_time_limit_seconds) && (
@@ -280,7 +307,10 @@ export default async function DashboardPage() {
                 <div className="mt-5">
                   <div className="flex items-center justify-between text-xs text-slate-500">
                     <span>{progress}% completado</span>
-                    <span>Nota {formatScore(moduleGrade)} / 10</span>
+                    <span>
+                      {round > 1 ? "Mejor nota" : "Nota"}{" "}
+                      {formatScore(grade)} / 10
+                    </span>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
                     <div
@@ -290,6 +320,7 @@ export default async function DashboardPage() {
                   </div>
                   <p className="mt-1.5 text-xs text-slate-400">
                     {formatScore(points)} de {total} puntos · {total} ejercicios
+                    {round > 1 ? " en esta ronda" : ""}
                   </p>
                 </div>
 
