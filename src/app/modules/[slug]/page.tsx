@@ -19,6 +19,7 @@ import type {
   QuestionSessionRow,
 } from "@/lib/types";
 import { ExerciseCard } from "@/components/exercise-card";
+import { StartModuleButton } from "@/components/start-module";
 import { TimedRunner } from "@/components/timed-runner";
 
 type Props = {
@@ -174,6 +175,15 @@ export default async function ModulePage({ params }: Props) {
   }
 
   const serverNow = new Date().toISOString();
+
+  // El reloj del módulo solo corre después de pulsar “Iniciar módulo”.
+  // Una sesión sin `expires_at` en un módulo con tiempo límite significa
+  // que el docente activó el límite después de crearla: se muestra el
+  // botón para que el conteo empiece de forma explícita.
+  const moduleTimerStarted =
+    moduleSession !== null &&
+    (Number(module.module_time_limit_minutes) <= 0 ||
+      Boolean(moduleSession.expires_at));
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
@@ -338,22 +348,30 @@ export default async function ModulePage({ params }: Props) {
             Este módulo todavía no tiene ejercicios.
           </div>
         ) : hasTimeLimit ? (
-          <TimedRunner
-            moduleId={module.id}
-            exercises={exercises}
-            solvedIds={Array.from(solvedIds)}
-            lockedByAttemptsIds={attemptsExhaustedIds}
-            initialEarnedPoints={totalPoints}
-            moduleTimeLimitMinutes={module.module_time_limit_minutes}
-            questionTimeLimitSeconds={module.question_time_limit_seconds}
-            initialModuleExpiresAt={moduleSession?.expires_at ?? null}
-            initialQuestionSessions={questionSessions.map((session) => ({
-              exerciseId: session.exercise_id,
-              expiresAt: session.expires_at,
-              submittedAt: session.submitted_at,
-            }))}
-            serverNow={serverNow}
-          />
+          moduleTimerStarted ? (
+            <TimedRunner
+              moduleId={module.id}
+              exercises={exercises}
+              solvedIds={Array.from(solvedIds)}
+              lockedByAttemptsIds={attemptsExhaustedIds}
+              initialEarnedPoints={totalPoints}
+              moduleTimeLimitMinutes={module.module_time_limit_minutes}
+              questionTimeLimitSeconds={module.question_time_limit_seconds}
+              initialModuleExpiresAt={moduleSession?.expires_at ?? null}
+              initialQuestionSessions={questionSessions.map((session) => ({
+                exerciseId: session.exercise_id,
+                expiresAt: session.expires_at,
+                submittedAt: session.submitted_at,
+              }))}
+              serverNow={serverNow}
+            />
+          ) : (
+            <StartModuleButton
+              moduleId={module.id}
+              moduleTimeLimitMinutes={module.module_time_limit_minutes}
+              questionTimeLimitSeconds={module.question_time_limit_seconds}
+            />
+          )
         ) : currentExercise ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs font-medium text-slate-500">

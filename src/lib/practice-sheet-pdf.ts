@@ -1,8 +1,11 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import {
   PDFDocument,
   StandardFonts,
   rgb,
   type PDFFont,
+  type PDFImage,
   type PDFPage,
 } from "pdf-lib";
 import { latexToPlainText } from "./latex-plain";
@@ -23,7 +26,8 @@ export type PracticeSheetInput = {
 const PAGE_WIDTH = 595.28; // A4
 const PAGE_HEIGHT = 841.89;
 const MARGIN_X = 83;
-const MARGIN_TOP = 78;
+// Deja espacio para el cintillo superior con los logos.
+const MARGIN_TOP = 104;
 const MARGIN_BOTTOM = 88;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_X * 2;
 
@@ -35,8 +39,34 @@ const LINE_HEIGHT = 16;
 const SECTION_GAP = 20;
 const PARAGRAPH_GAP = 10;
 
+// Tres líneas en blanco entre un ejercicio y el siguiente.
+const EXERCISE_GAP = LINE_HEIGHT * 3;
+
 const GRAY = rgb(0.38, 0.38, 0.38);
 const LIGHT_GRAY = rgb(0.55, 0.55, 0.55);
+
+const BRAND_NAVY = rgb(0.043, 0.165, 0.29);
+const BRAND_TEAL = rgb(0.075, 0.722, 0.651);
+
+const LOGO_PATH = path.join(
+  process.cwd(),
+  "public",
+  "images",
+  "crisfe-logo.png",
+);
+
+/**
+ * Incrusta el logo del cintillo. Si el archivo no está disponible en el
+ * servidor, el PDF se genera igual sin logo.
+ */
+async function embedHeaderLogo(pdf: PDFDocument): Promise<PDFImage | null> {
+  try {
+    const bytes = await readFile(LOGO_PATH);
+    return await pdf.embedPng(bytes);
+  } catch {
+    return null;
+  }
+}
 
 function wrapText(
   text: string,
@@ -96,6 +126,58 @@ export async function buildPracticeSheetPdf({
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const logo = await embedHeaderLogo(pdf);
+
+  const drawHeaderBand = (currentPage: PDFPage) => {
+    // Cintillo superior: logo a la izquierda y nombre de la plataforma
+    // a la derecha, como en el documento de referencia.
+    if (logo) {
+      const logoHeight = 30;
+      const logoWidth = (logo.width / logo.height) * logoHeight;
+
+      currentPage.drawImage(logo, {
+        x: MARGIN_X,
+        y: PAGE_HEIGHT - 26 - logoHeight,
+        width: logoWidth,
+        height: logoHeight,
+      });
+    } else {
+      currentPage.drawText("CRISFE", {
+        x: MARGIN_X,
+        y: PAGE_HEIGHT - 50,
+        size: 13,
+        font: bold,
+        color: BRAND_NAVY,
+      });
+    }
+
+    const platform = "Mate Dual Brücke";
+    const platformWidth = bold.widthOfTextAtSize(platform, 10.5);
+    currentPage.drawText(platform, {
+      x: PAGE_WIDTH - MARGIN_X - platformWidth,
+      y: PAGE_HEIGHT - 42,
+      size: 10.5,
+      font: bold,
+      color: BRAND_NAVY,
+    });
+
+    const subtitle = "Guía de práctica";
+    const subtitleWidth = regular.widthOfTextAtSize(subtitle, 8);
+    currentPage.drawText(subtitle, {
+      x: PAGE_WIDTH - MARGIN_X - subtitleWidth,
+      y: PAGE_HEIGHT - 55,
+      size: 8,
+      font: regular,
+      color: GRAY,
+    });
+
+    currentPage.drawLine({
+      start: { x: MARGIN_X, y: PAGE_HEIGHT - 68 },
+      end: { x: PAGE_WIDTH - MARGIN_X, y: PAGE_HEIGHT - 68 },
+      thickness: 1.2,
+      color: BRAND_TEAL,
+    });
+  };
 
   const pages: PDFPage[] = [];
   let page: PDFPage;
@@ -250,6 +332,7 @@ export async function buildPracticeSheetPdf({
       Math.max(promptLines.length, 1) * LINE_HEIGHT +
       options.length * LINE_HEIGHT +
       LINE_HEIGHT +
+      EXERCISE_GAP +
       14;
 
     ensureSpace(requiredHeight);
@@ -304,8 +387,11 @@ export async function buildPracticeSheetPdf({
       font: regular,
       color: LIGHT_GRAY,
     });
-    y -= LINE_HEIGHT + 10;
+    y -= LINE_HEIGHT + EXERCISE_GAP;
   });
+
+  // Cintillo superior en todas las páginas.
+  pages.forEach(drawHeaderBand);
 
   // Pie de página: -- 1 of N --, como en el documento de referencia.
   pages.forEach((currentPage, index) => {

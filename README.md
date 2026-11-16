@@ -343,8 +343,10 @@ comenzar”** con el botón **⬇ Descargar guía PDF**.
 - Los ejercicios se toman del resto del banco: **no se repiten** con los que
   verá en la plataforma.
 - La selección es determinista, así que el PDF no cambia entre descargas.
-- El PDF sigue el formato de documento académico: título, objetivo,
-  instrucciones, ejercicios numerados, espacio para responder y pie de página.
+- El PDF sigue el formato de documento académico: cintillo superior con el logo
+  de CRISFE y el nombre de la plataforma, título, objetivo, instrucciones,
+  ejercicios numerados con **tres líneas de separación** para resolver, espacio
+  para la respuesta y pie de página.
 - Las respuestas no se incluyen; la guía es solo para practicar.
 
 > Si el módulo entrega **todo el banco** (`Ejercicios por estudiante = 0`), no
@@ -423,10 +425,14 @@ y la misma fórmula se usa en la exportación del grupo.
 
 En el formulario de cada módulo puedes definir dos límites independientes:
 
-- **Tiempo máximo del módulo (minutos):** el reloj empieza la primera vez que el
-  estudiante abre el módulo y no se reinicia al recargar la página.
+- **Tiempo máximo del módulo (minutos):** el reloj **no** empieza al abrir la
+  página. El estudiante debe pulsar **▶ Iniciar módulo**; a partir de ese
+  momento empieza a contar y no se reinicia al recargar la página.
 - **Tiempo máximo por pregunta (segundos):** cada pregunta empieza a contar
   cuando se muestra y se cierra al agotarse el tiempo.
+
+Antes de pulsar **Iniciar módulo**, el estudiante puede leer las instrucciones y
+descargar la guía de práctica sin gastar tiempo.
 
 Deja el campo vacío para no aplicar ese límite. Si un módulo tiene cualquier
 límite activo, el estudiante lo recorre **una pregunta a la vez** con
