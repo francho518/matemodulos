@@ -172,15 +172,45 @@ export async function addGroupMemberAction(formData: FormData) {
     groupErrorRedirect(groupId || "", "Selecciona un estudiante.");
   }
 
+  // Un estudiante solo puede pertenecer a un grupo. Si ya está en otro,
+  // se rechaza la asignación para que no aparezca en dos listas.
+  const { data: currentMembership } = await supabase
+    .from("group_members")
+    .select("group_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (currentMembership) {
+    if (currentMembership.group_id === groupId) {
+      revalidatePath(`/admin/groups/${groupId}`);
+      redirect(`/admin/groups/${groupId}?ok=1`);
+    }
+
+    const { data: otherGroup } = await supabase
+      .from("groups")
+      .select("name")
+      .eq("id", currentMembership.group_id)
+      .maybeSingle();
+
+    groupErrorRedirect(
+      groupId,
+      `Ese estudiante ya pertenece al grupo "${
+        otherGroup?.name ?? "otro grupo"
+      }". Quítalo de ese grupo antes de asignarlo aquí.`,
+    );
+  }
+
   const { error: insertError } = await supabase
     .from("group_members")
-    .upsert(
-      { group_id: groupId, user_id: userId },
-      { onConflict: "group_id,user_id", ignoreDuplicates: true },
-    );
+    .insert({ group_id: groupId, user_id: userId });
 
   if (insertError) {
-    groupErrorRedirect(groupId, "No se pudo agregar al estudiante.");
+    groupErrorRedirect(
+      groupId,
+      insertError.code === "23505"
+        ? "Ese estudiante ya pertenece a otro grupo. Quítalo de ese grupo antes de asignarlo aquí."
+        : "No se pudo agregar al estudiante.",
+    );
   }
 
   revalidatePath(`/admin/groups/${groupId}`);

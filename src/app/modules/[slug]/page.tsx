@@ -135,6 +135,15 @@ export default async function ModulePage({ params }: Props) {
 
   const progress = percentage(solvedIds.size, exercises.length);
 
+  // Guía de práctica: misma cantidad de ejercicios que la ronda actual,
+  // pero tomados de los que el estudiante no verá en el módulo.
+  const assignedIds = new Set(exercises.map((exercise) => exercise.id));
+  const guideAvailableCount = allExercises.filter(
+    (exercise) => !assignedIds.has(exercise.id),
+  ).length;
+  const canDownloadGuide =
+    exercises.length > 0 && guideAvailableCount >= exercises.length;
+
   const hasTimeLimit =
     Number(module.module_time_limit_minutes) > 0 ||
     Number(module.question_time_limit_seconds) > 0;
@@ -281,6 +290,47 @@ export default async function ModulePage({ params }: Props) {
           )}
         </div>
       </div>
+
+      {exercises.length > 0 && (
+        <div className="card mt-6 flex flex-col gap-4 border-teal-200 bg-teal-50/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-teal-700">
+              Antes de comenzar
+            </p>
+            <h2 className="mt-1 text-base font-bold text-slate-900">
+              Descarga tu guía de práctica en PDF
+            </h2>
+            <p className="mt-1 max-w-2xl text-xs text-slate-600">
+              Incluye {exercises.length}{" "}
+              {exercises.length === 1 ? "ejercicio" : "ejercicios"} distintos a
+              los de tu módulo, con espacio para resolver y el formato de
+              documento de la plataforma.
+            </p>
+            {!canDownloadGuide && (
+              <p className="mt-2 text-xs font-medium text-amber-700">
+                Se necesitan {exercises.length}{" "}
+                {exercises.length === 1 ? "ejercicio" : "ejercicios"} distintos
+                y el banco solo tiene {guideAvailableCount} fuera de tu
+                selección. Tu docente puede ampliar el banco o configurar menos
+                ejercicios por estudiante.
+              </p>
+            )}
+          </div>
+
+          {canDownloadGuide ? (
+            <a
+              href={`/modules/${module.slug}/guia`}
+              className="btn-primary shrink-0 text-center"
+            >
+              ⬇ Descargar guía PDF
+            </a>
+          ) : (
+            <span className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-400">
+              Guía no disponible
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="mt-6 space-y-4">
         {exercises.length === 0 ? (

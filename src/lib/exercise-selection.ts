@@ -132,3 +132,38 @@ export function selectExercisesForRound<T extends SelectableExercise>(
     .slice(0, limit)
     .sort((a, b) => a.order_index - b.order_index || a.id.localeCompare(b.id));
 }
+
+/**
+ * Selección para la guía de práctica descargable.
+ *
+ * Devuelve la misma cantidad de ejercicios que verá el estudiante en su
+ * ronda actual, pero tomados del resto del banco. La selección es
+ * determinista para que el PDF no cambie entre descargas.
+ */
+export function selectPracticeExercises<T extends SelectableExercise>(
+  exercises: T[],
+  userId: string,
+  moduleId: string,
+  round: number,
+  count: number,
+  excludedIds: Iterable<string>,
+): T[] {
+  const excluded = new Set(excludedIds);
+  const available = exercises.filter((exercise) => !excluded.has(exercise.id));
+
+  if (available.length === 0 || count <= 0) return [];
+
+  const random = mulberry32(
+    hashString(`guia:${userId}:${moduleId}:${round}`),
+  );
+  const shuffled = [...available];
+
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  return shuffled
+    .slice(0, Math.floor(count))
+    .sort((a, b) => a.order_index - b.order_index || a.id.localeCompare(b.id));
+}

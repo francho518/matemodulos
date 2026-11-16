@@ -31,7 +31,11 @@ Stack 100 % gratuito para empezar:
 - **Un ejercicio a la vez**: el estudiante ve únicamente el ejercicio que debe
   resolver y avanza al siguiente al acertar o cerrar el actual.
 - **Grupos de estudiantes**: asigna módulos a un grupo y limita su visibilidad
-  únicamente a los miembros del grupo.
+  únicamente a los miembros del grupo. Cada estudiante pertenece a un solo
+  grupo.
+- **Guía de práctica en PDF**: antes de comenzar un módulo, el estudiante puede
+  descargar la misma cantidad de ejercicios que verá, pero de otra selección del
+  banco, con formato de documento académico.
 - **Exportación de notas** de un grupo en CSV compatible con Excel (nota de 0 a
   10, puntaje y porcentaje).
 - **Reasignaciones**: cuando un estudiante termina un módulo, el docente puede
@@ -102,6 +106,11 @@ Stack 100 % gratuito para empezar:
 > **Reasignaciones (obligatorio si ya tenías la base creada):** ejecuta
 > [`supabase/migration-reasignaciones.sql`](supabase/migration-reasignaciones.sql).
 > Agrega la ronda de cada intento y la tabla `module_rounds`. No borra datos.
+>
+> **Un grupo por estudiante (obligatorio si ya tenías grupos):** ejecuta
+> [`supabase/migration-un-grupo-por-estudiante.sql`](supabase/migration-un-grupo-por-estudiante.sql).
+> Deja la membresía más reciente si algún estudiante estaba en varios grupos y
+> crea el índice único que lo impide.
 
 ### 3. Obtener las claves
 
@@ -324,11 +333,36 @@ ronda. Los administradores son los únicos que pueden crearlas.
 
 ---
 
+## Guía de práctica en PDF
+
+Antes de comenzar un módulo, el estudiante ve la tarjeta **“Antes de
+comenzar”** con el botón **⬇ Descargar guía PDF**.
+
+- La guía incluye **la misma cantidad de ejercicios** que el módulo le asignará
+  en su ronda actual.
+- Los ejercicios se toman del resto del banco: **no se repiten** con los que
+  verá en la plataforma.
+- La selección es determinista, así que el PDF no cambia entre descargas.
+- El PDF sigue el formato de documento académico: título, objetivo,
+  instrucciones, ejercicios numerados, espacio para responder y pie de página.
+- Las respuestas no se incluyen; la guía es solo para practicar.
+
+> Si el módulo entrega **todo el banco** (`Ejercicios por estudiante = 0`), no
+> quedan ejercicios distintos y el botón aparece deshabilitado. Configura un
+> número menor al total (por ejemplo, 40 de 100) para habilitarlo.
+
+Para descargarla directamente: `/modules/<slug>/guia`.
+
+---
+
 ## Grupos y exportación de notas
 
 En **Administración → Grupos** puedes crear grupos (por ejemplo, `3.º A`) y:
 
-1. **Agregar estudiantes** ya registrados en la plataforma.
+1. **Agregar estudiantes** ya registrados en la plataforma. Cada estudiante
+   puede pertenecer a **un único grupo**; los que ya están en otro no aparecen
+   en la lista y, si se intenta asignarlos por fuera del panel, la acción lo
+   rechaza.
 2. **Asignar módulos** marcando las casillas correspondientes.
 3. **Descargar las notas** del grupo con los botones **Planilla de notas (CSV)**
    o **Detalle por módulo (CSV)**.
@@ -339,8 +373,8 @@ En **Administración → Grupos** puedes crear grupos (por ejemplo, `3.º A`) y:
   al que el módulo esté asignado.
 - Un módulo **sin grupos asignados** no lo ve ningún estudiante (el
   administrador sí lo ve desde el panel).
-- Un estudiante puede pertenecer a varios grupos. Verá la unión de los módulos
-  asignados a todos ellos.
+- Cada estudiante pertenece a **un solo grupo** y ve los módulos asignados a ese
+  grupo.
 
 ### Formato de la exportación
 
@@ -533,7 +567,8 @@ math-server/
 │  ├─ migration-student-variants.sql  # Columnas para variantes
 │  ├─ migration-groups-timing.sql     # Grupos, notas y tiempos
 │  ├─ migration-module-visibility.sql # Visibilidad estricta por grupos
-│  └─ migration-reasignaciones.sql    # Rondas y mejor nota
+│  ├─ migration-reasignaciones.sql    # Rondas y mejor nota
+│  └─ migration-un-grupo-por-estudiante.sql # Un grupo por alumno
 ├─ src/
 │  ├─ app/
 │  │  ├─ (auth)/          # Login, registro y Server Actions de sesión

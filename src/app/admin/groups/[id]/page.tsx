@@ -66,7 +66,7 @@ export default async function GroupDetailPage({ params, searchParams }: Props) {
 
   const group = groupData as GroupRow;
 
-  const [memberRowsResult, allStudentsResult, modulesResult, assignedResult] =
+  const [memberRowsResult, allStudentsResult, modulesResult, assignedResult, allMembershipsResult] =
     await Promise.all([
       supabase
         .from("group_members")
@@ -89,6 +89,7 @@ export default async function GroupDetailPage({ params, searchParams }: Props) {
         .from("group_modules")
         .select("module_id")
         .eq("group_id", group.id),
+      supabase.from("group_members").select("user_id"),
     ]);
 
   const memberIds = (memberRowsResult.data ?? []).map((row) => row.user_id);
@@ -119,8 +120,15 @@ export default async function GroupDetailPage({ params, searchParams }: Props) {
   });
 
   const allStudents = (allStudentsResult.data ?? []) as ProfileRow[];
+  const studentsInAnyGroup = new Set(
+    (allMembershipsResult.data ?? []).map((row) => row.user_id),
+  );
+
+  // Un estudiante solo puede pertenecer a un grupo: los que ya están en
+  // este grupo o en otro no vuelven a aparecer en la lista.
   const availableStudents = allStudents.filter(
-    (student) => !memberIdSet.has(student.id),
+    (student) =>
+      !memberIdSet.has(student.id) && !studentsInAnyGroup.has(student.id),
   );
 
   const modules = (modulesResult.data ?? []) as Array<
@@ -339,7 +347,8 @@ export default async function GroupDetailPage({ params, searchParams }: Props) {
           </h3>
           <p className="mt-1 text-sm text-slate-500">
             Solo los estudiantes agregados aquí verán los módulos asignados a
-            este grupo.
+            este grupo. Cada estudiante puede pertenecer a un único grupo: los
+            que ya están en otro no aparecen en la lista.
           </p>
 
           {members.length === 0 ? (

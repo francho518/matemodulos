@@ -634,6 +634,12 @@ create index if not exists idx_module_rounds_student
 create index if not exists idx_group_members_user
   on public.group_members (user_id);
 
+-- Un estudiante solo puede pertenecer a un grupo. En bases creadas
+-- antes de este cambio, ejecuta migration-un-grupo-por-estudiante.sql
+-- para resolver duplicados antes de crear este índice.
+create unique index if not exists idx_group_members_one_group
+  on public.group_members (user_id);
+
 create index if not exists idx_group_modules_module
   on public.group_modules (module_id);
 
