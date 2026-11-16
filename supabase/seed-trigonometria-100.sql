@@ -15,6 +15,9 @@
 --    - Longitudes: 2 decimales (tolerancia 0.01).
 --    - Ángulos: 1 decimal (tolerancia 0.1).
 --
+--  Cada estudiante recibe 40 de los 100 ejercicios, así la guía de
+--  práctica y las reasignaciones pueden usar ejercicios distintos.
+--
 --  ATENCIÓN: al eliminar los ejercicios anteriores se borran en cascada
 --  los intentos y el progreso de los estudiantes en este módulo.
 --
@@ -43,7 +46,7 @@ values (
   4,
   true,
   false,
-  0
+  40
 )
 on conflict (slug) do update
 set title = excluded.title,

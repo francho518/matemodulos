@@ -518,8 +518,14 @@ Todas las respuestas son numéricas y cada enunciado indica el redondeo:
 - Ángulos en grados: **1 decimal**.
 
 Las tolerancias del servidor son `0,01` y `0,1` respectivamente.
-El módulo entrega los 100 ejercicios completos a cada estudiante y se resuelven
-de uno en uno. Recuerda asignarlo a un grupo para que sea visible.
+El seed configura **40 ejercicios por estudiante** de un banco de 100, de modo
+que la **guía de práctica en PDF** y las **reasignaciones** usan ejercicios
+distintos a los de la ronda actual. Se resuelven de uno en uno. Recuerda
+asignarlo a un grupo para que sea visible.
+
+> Si ya habías ejecutado el seed anterior, **no hace falta volver a ejecutarlo**
+> (borraría intentos y progreso). Basta con entrar a **Administración →
+> Trigonometría · 100 ejercicios** y poner **40** en *Ejercicios por estudiante*.
 
 > **Importante:** este seed **reemplaza** el banco anterior del módulo. Al
 > eliminar los ejercicios anteriores se borran en cascada los intentos y el
