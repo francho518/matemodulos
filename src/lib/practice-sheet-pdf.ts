@@ -332,7 +332,6 @@ export async function buildPracticeSheetPdf({
       Math.max(promptLines.length, 1) * LINE_HEIGHT +
       options.length * LINE_HEIGHT +
       LINE_HEIGHT +
-      EXERCISE_GAP +
       14;
 
     ensureSpace(requiredHeight);

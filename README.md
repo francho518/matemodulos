@@ -86,6 +86,10 @@ Stack 100 % gratuito para empezar:
 7. Opcionalmente, ejecuta
    [`supabase/seed-decimales-fracciones-100.sql`](supabase/seed-decimales-fracciones-100.sql)
    para cargar el módulo **Decimales a fracciones · 100 ejercicios**.
+8. Opcionalmente, ejecuta
+   [`supabase/seed-funciones-trigonometricas-100.sql`](supabase/seed-funciones-trigonometricas-100.sql)
+   para cargar el módulo **Funciones trigonométricas · 100 ejercicios**, con
+   solo seno y coseno, desplazamientos y aplicaciones.
 
 > **Si ya tenías la base de datos creada** antes de las variantes por
 > estudiante, ejecuta una vez
@@ -565,6 +569,45 @@ de uno en uno. Recuerda asignarlo a un grupo para que sea visible.
 
 ---
 
+## Módulo de Funciones trigonométricas · 100 ejercicios
+
+El archivo
+[`supabase/seed-funciones-trigonometricas-100.sql`](supabase/seed-funciones-trigonometricas-100.sql)
+crea el módulo **Funciones trigonométricas · 100 ejercicios**
+(`/modules/funciones-trigonometricas-100`). Usa **únicamente las funciones seno
+y coseno**, sin tangente ni otras razones trigonométricas.
+
+Los 100 ejercicios se organizan así:
+
+- **15 de identificación:** amplitud, periodo, desplazamiento vertical,
+  desplazamiento horizontal, rango, máximo y mínimo.
+- **15 de evaluación:** cálculo de `f(x)` en ángulos notables, con y sin
+  desplazamientos.
+- **15 de construcción:** obtener la ecuación `y = A·sin(B(x−C)) + D` o
+  `y = A·cos(B(x−C)) + D` a partir de una descripción.
+- **15 de análisis:** rango, máximos, mínimos, ceros y número de ciclos.
+- **40 aplicaciones:** norias, mareas, temperatura, horas de luz, resortes,
+  voltaje, corriente alterna, ondas, presión arterial, respiración, brillo
+  lunar y consumo eléctrico.
+
+Las preguntas de identificación, construcción y análisis de intervalos son de
+**opción múltiple**; las de evaluación y las aplicaciones son **numéricas**,
+con tolerancias de `0,01`, `0,1` o `0,001` según la precisión pedida.
+
+El seed configura **40 ejercicios por estudiante** con **selección aleatoria
+estable**: cada estudiante recibe una mezcla distinta de los 100 ejercicios, y
+la guía de práctica y las reasignaciones usan ejercicios que no están en su
+ronda actual.
+
+> **Importante:** este seed **reemplaza** el banco anterior del módulo si ya
+> existía. Al eliminar los ejercicios se borran en cascada los intentos y el
+> progreso de ese módulo. En una base nueva no se pierde nada.
+
+Después de ejecutarlo, asigna el módulo a un grupo desde **Administración →
+Grupos** para que los estudiantes puedan verlo.
+
+---
+
 ## Estructura del proyecto
 
 ```text
@@ -576,6 +619,7 @@ math-server/
 │  ├─ seed-factorizacion-100.sql  # Módulo con 100 ejercicios enteros
 │  ├─ seed-trigonometria-100.sql  # Módulo con 100 ejercicios de triángulos rectángulos
 │  ├─ seed-decimales-fracciones-100.sql  # Módulo con 100 conversiones a fracciones
+│  ├─ seed-funciones-trigonometricas-100.sql  # Módulo de seno y coseno
 │  ├─ migration-student-variants.sql  # Columnas para variantes
 │  ├─ migration-groups-timing.sql     # Grupos, notas y tiempos
 │  ├─ migration-module-visibility.sql # Visibilidad estricta por grupos

@@ -32,6 +32,9 @@ export function latexToPlainText(value: string) {
 
   // Comandos sin argumento.
   const commands: Record<string, string> = {
+    // Deben ir antes de \le y \ge: si no, \left se convierte en <=ft.
+    "\\left": "",
+    "\\right": "",
     "\\cdot": "·",
     "\\times": "×",
     "\\div": "÷",
@@ -61,8 +64,6 @@ export function latexToPlainText(value: string) {
     "\\ln": "ln ",
     "\\quad": "  ",
     "\\qquad": "    ",
-    "\\left": "",
-    "\\right": "",
     "\\,": " ",
     "\\;": " ",
     "\\:": " ",
