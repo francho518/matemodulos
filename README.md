@@ -608,6 +608,44 @@ Grupos** para que los estudiantes puedan verlo.
 
 ---
 
+## Evaluación imprimible de 45 minutos
+
+La carpeta [`public/docs`](public/docs) contiene una evaluación lista para
+imprimir, independiente de los módulos en línea:
+
+- [`evaluacion-45-minutos.pdf`](public/docs/evaluacion-45-minutos.pdf): examen
+  para los estudiantes.
+- [`evaluacion-45-minutos-solucionario.pdf`](public/docs/evaluacion-45-minutos-solucionario.pdf):
+  respuestas, procedimientos, distribución de puntos y criterios de corrección
+  para el docente.
+
+La evaluación tiene **15 ítems** y **100 puntos**:
+
+| Sección | Ítems | Puntos |
+| --- | --- | --- |
+| I. Factorización | 1 – 5 | 30 |
+| II. Trigonometría | 6 – 10 | 30 |
+| III. Funciones trigonométricas | 11 – 15 | 40 |
+| **Total** | **15** | **100** |
+
+Cada ítem de Factorización y Trigonometría vale **6 puntos**; cada ítem de
+Funciones trigonométricas vale **8 puntos**. El examen incluye espacio para el
+procedimiento, una hoja de respuestas y el solucionario con el desarrollo de
+cada ejercicio.
+
+Para regenerar ambos PDF después de cambiar los ítems:
+
+```bash
+npm run evaluacion:pdf
+```
+
+El generador está en
+[`scripts/generar-evaluacion.js`](scripts/generar-evaluacion.js) y usa las
+fuentes DejaVu Sans incluidas en [`scripts/fonts`](scripts/fonts) para que las
+fórmulas, los ángulos y los símbolos matemáticos se impriman correctamente.
+
+---
+
 ## Estructura del proyecto
 
 ```text
@@ -637,6 +675,12 @@ math-server/
 │  ├─ components/         # Header, tarjetas de ejercicio, formularios
 │  ├─ lib/                # Cliente Supabase, tipos, utilidades y selección
 │  └─ middleware.ts       # Refresco de sesión y rutas protegidas
+├─ public/
+│  ├─ docs/               # Evaluación imprimible y solucionario
+│  └─ images/             # Logo institucional
+├─ scripts/
+│  ├─ fonts/              # DejaVu Sans para generar los PDF
+│  └─ generar-evaluacion.js # Generador del examen y del solucionario
 ├─ .env.example
 ├─ netlify.toml           # Configuración de despliegue en Netlify
 ├─ .nvmrc                 # Versión de Node para Netlify
