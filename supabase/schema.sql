@@ -20,11 +20,15 @@ create table if not exists public.profiles (
   full_name text,
   email text,
   role text not null default 'student' check (role in ('student', 'admin')),
+  active boolean not null default true,
   created_at timestamptz not null default now()
 );
 
 -- Migración para bases de datos creadas antes de los grupos.
 alter table public.profiles add column if not exists email text;
+
+-- Migración para bases de datos creadas antes de las bajas de usuarios.
+alter table public.profiles add column if not exists active boolean not null default true;
 
 -- Rellena el correo de los perfiles que ya existían.
 update public.profiles p
@@ -144,6 +148,40 @@ drop trigger if exists protect_profile_email on public.profiles;
 create trigger protect_profile_email
   before update on public.profiles
   for each row execute function public.protect_profile_email();
+
+-- Da de baja o reactiva a un usuario. Al darlo de baja se elimina su
+-- membresía en grupos, por lo que deja de ver módulos asignados. El
+-- perfil y el historial de intentos se conservan.
+create or replace function public.set_user_active(
+  target_user uuid,
+  is_active boolean
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'Solo un administrador puede cambiar el estado de los usuarios.';
+  end if;
+
+  if target_user = auth.uid() then
+    raise exception 'No puedes cambiar tu propio estado.';
+  end if;
+
+  update public.profiles
+  set active = is_active
+  where id = target_user;
+
+  if not is_active then
+    delete from public.group_members where user_id = target_user;
+  end if;
+end;
+$$;
+
+revoke all on function public.set_user_active(uuid, boolean) from public;
+grant execute on function public.set_user_active(uuid, boolean) to authenticated;
 
 -- ------------------------------------------------------------
 -- 2. MÓDULOS (temas)

@@ -275,6 +275,29 @@ Render, Fly.io o Cloudflare Pages/Workers.
 6. Los estudiantes verán el módulo en **Mis módulos** en cuanto esté publicado.
 7. Para despublicar un tema, edita el módulo y desmarca **Publicado**.
 
+### Gestionar usuarios
+
+En **Administración → Usuarios** aparecen todos los perfiles con su rol, grupo,
+estado y fecha de alta. Hay dos acciones:
+
+- **Enviar enlace:** Supabase envía al correo del estudiante un enlace para
+  elegir una nueva contraseña. No se envía ninguna contraseña en texto plano.
+  El enlace abre `/update-password`, donde se guarda la contraseña nueva.
+- **Dar de baja / Reactivar:** la baja quita al usuario de su grupo y le
+  impide iniciar sesión; su perfil y su historial de intentos se conservan.
+  La reactivación le devuelve el acceso, pero habrá que volver a asignarlo a un
+  grupo desde **Administración → Grupos**.
+
+No puedes darte de baja a ti mismo desde el panel. Para que los correos lleguen,
+configura el proveedor SMTP en **Supabase → Authentication → SMTP Settings** (o
+usa el correo integrado de Supabase en proyectos pequeños) y añade
+`https://tu-dominio/auth/callback` a las Redirect URLs.
+
+Antes de usar estas acciones en una base ya creada, ejecuta
+[`supabase/migration-user-baja.sql`](supabase/migration-user-baja.sql) en el SQL
+Editor. El archivo `supabase/schema.sql` ya incluye estos cambios para bases
+nuevas.
+
 ---
 
 ## Variantes de ejercicios por estudiante
@@ -752,7 +775,10 @@ un **Server Action** (`src/app/modules/actions.ts`), nunca en el navegador.
 - Solo los administradores pueden crear, editar o borrar contenido, grupos y
   asignaciones.
 - Un trigger impide que un estudiante se cambie el rol a `admin`.
-- No se expone la clave `service_role`.
+- La baja de usuarios se hace con una RPC `security definer` que comprueba el
+  rol desde la base de datos; no se expone la clave `service_role`.
+- Los usuarios dados de baja se cierran sesión en la siguiente petición y no
+  pueden volver a entrar hasta que un administrador los reactive.
 - Los enlaces de redirección se validan para evitar *open redirects*.
 
 ---
@@ -766,6 +792,8 @@ un **Server Action** (`src/app/modules/actions.ts`), nunca en el navegador.
 | `new row violates row-level security policy` | El usuario no es admin o el módulo no está publicado. Revisa el rol. |
 | No veo módulos en el panel | Verifica que estén marcados como **Publicados**. |
 | El correo de confirmación lleva a localhost | Actualiza **Site URL** y **Redirect URLs** en Supabase. |
+| El enlace de recuperación no envía correo | Revisa el SMTP en Supabase y que el correo del perfil sea correcto. |
+| Un usuario dado de baja sigue viendo módulos | Cierra su sesión o espera a la siguiente petición; el middleware lo expulsa. |
 | Se repite el login o hay un bucle | Revisa que las variables de entorno sean correctas y borra las cookies. |
 | Las fórmulas se ven como texto | Usa `$...$` alrededor de la expresión LaTeX. |
 
@@ -775,7 +803,6 @@ un **Server Action** (`src/app/modules/actions.ts`), nunca en el navegador.
 
 - Editar ejercicios existentes (hoy se pueden eliminar y volver a crear).
 - Importación masiva de estudiantes y ejercicios desde CSV/JSON.
-- Recuperación de contraseña.
 - Exportación real `.xlsx` con varias hojas (hoy se entrega CSV compatible).
 - Ranking o reportes históricos por grupo.
 - Pistas opcionales antes de mostrar la explicación.

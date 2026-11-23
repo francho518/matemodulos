@@ -25,10 +25,29 @@ export async function login(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
 
   if (error) {
     redirect("/login?error=" + encodeURIComponent(error.message));
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("active")
+    .eq("id", data.user.id)
+    .maybeSingle();
+
+  if (profile?.active === false) {
+    await supabase.auth.signOut();
+    redirect(
+      "/login?error=" +
+        encodeURIComponent(
+          "Esta cuenta está dada de baja. Contacta con el administrador.",
+        ),
+    );
   }
 
   redirect(redirectTo);
@@ -89,4 +108,43 @@ export async function logout() {
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/");
+}
+
+export async function updatePassword(formData: FormData) {
+  const password = String(formData.get("password") ?? "");
+  const repeatPassword = String(formData.get("repeat_password") ?? "");
+
+  if (password.length < 6) {
+    redirect(
+      "/update-password?error=" +
+        encodeURIComponent("La contraseña debe tener al menos 6 caracteres."),
+    );
+  }
+
+  if (password !== repeatPassword) {
+    redirect(
+      "/update-password?error=" +
+        encodeURIComponent("Las contraseñas no coinciden."),
+    );
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(
+      "/login?error=" +
+        encodeURIComponent("La sesión caducó. Pide un nuevo enlace."),
+    );
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
+
+  if (error) {
+    redirect("/update-password?error=" + encodeURIComponent(error.message));
+  }
+
+  redirect("/update-password?ok=1");
 }

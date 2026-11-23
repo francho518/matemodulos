@@ -75,6 +75,12 @@ export default async function AdminLayout({
         >
           Grupos
         </Link>
+        <Link
+          href="/admin/users"
+          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-500 transition hover:text-slate-800"
+        >
+          Usuarios
+        </Link>
       </nav>
 
       <div className="mt-8">{children}</div>

@@ -45,6 +45,39 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
+
+  // Un usuario dado de baja conserva su cuenta, pero no puede entrar.
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("active")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile?.active === false) {
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        // Si falla la revocación, igualmente se cierra la sesión local.
+      }
+
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/login";
+      redirectUrl.search = "";
+      redirectUrl.searchParams.set(
+        "error",
+        "Esta cuenta está dada de baja. Contacta con el administrador.",
+      );
+
+      const redirectResponse = NextResponse.redirect(redirectUrl);
+      supabaseResponse.cookies.getAll().forEach((cookie) => {
+        redirectResponse.cookies.set(cookie);
+      });
+
+      return redirectResponse;
+    }
+  }
+
   const isProtected =
     path.startsWith("/dashboard") ||
     path.startsWith("/modules") ||

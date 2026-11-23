@@ -53,6 +53,7 @@ export type ProfileRow = {
   full_name: string | null;
   email: string | null;
   role: "student" | "admin";
+  active?: boolean;
 };
 
 export type GroupRow = {
