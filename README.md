@@ -608,6 +608,40 @@ Grupos** para que los estudiantes puedan verlo.
 
 ---
 
+## Módulos de Cálculo · 100 ejercicios cada uno
+
+Los cuatro seeds siguientes crean módulos publicados con 100 ejercicios
+numéricos cada uno, `randomize_exercises = false` y `exercises_per_student = 0`
+(el banco completo para cada estudiante). Se ejecutan desde **SQL Editor** tras
+`supabase/schema.sql`:
+
+| Archivo | Slug | Contenido |
+| --- | --- | --- |
+| `supabase/seed-integrales-indefinidas-100.sql` | `integrales-indefinidas-100` | 100 integrales indefinidas de polinomios y radicales. Se pide `F(x₀)` con `F(0)=0` o `F(1)=0`. |
+| `supabase/seed-integrales-definidas-100.sql` | `integrales-definidas-100` | 100 integrales definidas de polinomios y radicales. |
+| `supabase/seed-cambio-variable-100.sql` | `cambio-variable-100` | 100 integrales que requieren cambio de variable. |
+| `supabase/seed-solidos-revolucion-100.sql` | `solidos-revolucion-100` | 100 sólidos de revolución. Se pide el coeficiente `k` del volumen `kπ`. |
+
+Cada seed es idempotente en el módulo y solo inserta ejercicios si el módulo aún
+no tiene ninguno. Los enunciados usan notación LaTeX y las respuestas son
+numéricas, con tolerancia `0,000001` para enteros y `0,001` para decimales
+redondeados. Las explicaciones muestran el cambio de variable o el planteamiento
+del volumen y el cálculo de la respuesta.
+
+Para regenerar los cuatro archivos de forma determinista:
+
+```bash
+npm run calculo:seeds
+```
+
+El generador está en
+[`scripts/generar-seeds-calculo.js`](scripts/generar-seeds-calculo.js) y verifica
+cada respuesta con aritmética exacta antes de escribir los `.sql`. Después de
+ejecutar los seeds, asigna los módulos a un grupo desde **Administración →
+Grupos** para que los estudiantes puedan verlos.
+
+---
+
 ## Evaluación imprimible de 45 minutos
 
 La carpeta [`public/docs`](public/docs) contiene una evaluación lista para

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "evaluacion:pdf": "node scripts/generar-evaluacion.js"
+    "evaluacion:pdf": "node scripts/generar-evaluacion.js",
+    "calculo:seeds": "node scripts/generar-seeds-calculo.js"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
