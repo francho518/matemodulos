@@ -83,28 +83,84 @@ async function embedHeaderLogo(pdf: PDFDocument): Promise<PDFImage | null> {
   }
 }
 
-const PDF_SYMBOLS = new Set(["∫", "∬", "∭", "∮"]);
-const SYMBOL_SPLIT = /([\u222b\u222c\u222d\u222e])/g;
+const PDF_SYMBOLS = new Set(["∫", "√"]);
+// Marcador emitido por latexToPlainText para integrales definidas.
+const INTEGRAL_TOKEN = /∫\[([^\]|]*)\|([^\]]*)\]/g;
+const SYMBOL_SPLIT = /(∫|√)/g;
 
-function splitForSymbols(text: string): string[] {
-  return text.split(SYMBOL_SPLIT).filter(Boolean);
+type TextSegment =
+  | { kind: "text"; text: string }
+  | { kind: "symbol"; text: string }
+  | { kind: "integral"; lower: string; upper: string };
+
+function splitSymbols(text: string): TextSegment[] {
+  return text
+    .split(SYMBOL_SPLIT)
+    .filter(Boolean)
+    .map((part) =>
+      PDF_SYMBOLS.has(part)
+        ? { kind: "symbol" as const, text: part }
+        : { kind: "text" as const, text: part },
+    );
 }
 
-function isSymbol(part: string): boolean {
-  return PDF_SYMBOLS.has(part);
+/** Divide una línea en texto, símbolos e integrales con límites. */
+function tokenize(text: string): TextSegment[] {
+  const segments: TextSegment[] = [];
+  const pattern = new RegExp(INTEGRAL_TOKEN.source, "g");
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push(...splitSymbols(text.slice(lastIndex, match.index)));
+    }
+
+    segments.push({
+      kind: "integral",
+      lower: match[1],
+      upper: match[2],
+    });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push(...splitSymbols(text.slice(lastIndex)));
+  }
+
+  return segments.length > 0 ? segments : [{ kind: "text", text }];
 }
 
-/** Ancho real de una línea que puede mezclar Helvetica y Symbol. */
+/** Tamaño de los límites respecto al signo de integral. */
+const LIMIT_SIZE_RATIO = 0.62;
+
+function segmentWidth(
+  segment: TextSegment,
+  font: PDFFont,
+  symbolFont: PDFFont,
+  size: number,
+): number {
+  if (segment.kind === "integral") {
+    const limitSize = size * LIMIT_SIZE_RATIO;
+    const glyphWidth = symbolFont.widthOfTextAtSize("∫", size);
+    const lowerWidth = font.widthOfTextAtSize(segment.lower, limitSize);
+    const upperWidth = font.widthOfTextAtSize(segment.upper, limitSize);
+    return Math.max(glyphWidth, lowerWidth, upperWidth) + 2;
+  }
+
+  const usedFont = segment.kind === "symbol" ? symbolFont : font;
+  return usedFont.widthOfTextAtSize(segment.text, size);
+}
+
+/** Ancho real de una línea que puede mezclar Helvetica, Symbol y límites. */
 function mixedWidth(
   text: string,
   font: PDFFont,
   symbolFont: PDFFont,
   size: number,
 ): number {
-  return splitForSymbols(text).reduce(
-    (total, part) =>
-      total +
-      (isSymbol(part) ? symbolFont : font).widthOfTextAtSize(part, size),
+  return tokenize(text).reduce(
+    (total, segment) => total + segmentWidth(segment, font, symbolFont, size),
     0,
   );
 }
@@ -170,7 +226,11 @@ export async function buildPracticeSheetsPdf(
   const symbol = await pdf.embedFont(StandardFonts.Symbol);
   const logo = await embedHeaderLogo(pdf);
 
-  /** Dibuja una línea alternando entre la fuente normal y Symbol. */
+  /**
+   * Dibuja una línea alternando entre la fuente normal y Symbol. Las
+   * integrales definidas se dibujan como un bloque: el signo y, centrados
+   * sobre él, el límite superior arriba y el inferior abajo.
+   */
   const drawMixedText = (
     currentPage: PDFPage,
     text: string,
@@ -184,16 +244,61 @@ export async function buildPracticeSheetsPdf(
   ) => {
     let cursor = options.x;
 
-    for (const part of splitForSymbols(text)) {
-      const font = isSymbol(part) ? symbol : options.font;
-      currentPage.drawText(part, {
+    for (const segment of tokenize(text)) {
+      if (segment.kind === "integral") {
+        const limitSize = options.size * LIMIT_SIZE_RATIO;
+        const glyphWidth = symbol.widthOfTextAtSize("∫", options.size);
+        const lowerWidth = options.font.widthOfTextAtSize(
+          segment.lower,
+          limitSize,
+        );
+        const upperWidth = options.font.widthOfTextAtSize(
+          segment.upper,
+          limitSize,
+        );
+        const blockWidth = Math.max(glyphWidth, lowerWidth, upperWidth) + 2;
+
+        currentPage.drawText("∫", {
+          x: cursor + (blockWidth - glyphWidth) / 2,
+          y: options.y,
+          size: options.size,
+          font: symbol,
+          color: options.color,
+        });
+
+        if (segment.upper) {
+          currentPage.drawText(segment.upper, {
+            x: cursor + (blockWidth - upperWidth) / 2,
+            y: options.y + options.size * 0.62,
+            size: limitSize,
+            font: options.font,
+            color: options.color,
+          });
+        }
+
+        if (segment.lower) {
+          currentPage.drawText(segment.lower, {
+            x: cursor + (blockWidth - lowerWidth) / 2,
+            y: options.y - options.size * 0.33,
+            size: limitSize,
+            font: options.font,
+            color: options.color,
+          });
+        }
+
+        cursor += blockWidth;
+        continue;
+      }
+
+      const font = segment.kind === "symbol" ? symbol : options.font;
+      currentPage.drawText(segment.text, {
         x: cursor,
         y: options.y,
         size: options.size,
         font,
         color: options.color,
       });
-      cursor += font.widthOfTextAtSize(part, options.size);
+      cursor += font.widthOfTextAtSize(segment.text, options.size);
     }
   };
 

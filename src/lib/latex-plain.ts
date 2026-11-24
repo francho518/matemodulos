@@ -18,10 +18,14 @@ export function latexToPlainText(value: string) {
   text = replaceCommandWithArgument(text, "mathrm", (arg) => arg);
   text = replaceCommandWithArgument(text, "text", (arg) => arg);
   text = replaceCommandWithArgument(text, "textbf", (arg) => arg);
-  text = replaceCommandWithArgument(text, "sqrt", (arg) => `raíz(${arg})`);
+  text = replaceCommandWithArgument(text, "sqrt", (arg) => `√(${arg})`);
   text = replaceCommandWithArgument(text, "frac", null, (numerator, denominator) => {
     return `(${numerator})/(${denominator})`;
   });
+
+  // Los límites de una integral definida se guardan en un marcador para que
+  // el PDF pueda dibujarlos arriba y abajo del signo, no como texto inline.
+  text = convertIntegralLimits(text);
 
   // Grados y exponentes simples.
   text = text.replace(/\^\{?\\circ\}?/g, "°");
@@ -52,12 +56,13 @@ export function latexToPlainText(value: string) {
     "\\pi": "pi",
     "\\angle": "ángulo",
     "\\infty": "infinito",
-    // Se conservan como caracteres Unicode y el PDF los dibuja con la
-    // fuente Symbol, que sí tiene estos glifos (Helvetica no los tiene).
+    // La fuente Symbol tiene ∫ y √. Las integrales dobles/triples se
+    // representan repitiendo el signo para evitar glifos que Symbol no
+    // contiene (∬, ∭, ∮) y que harían fallar la generación del PDF.
     "\\int": "∫",
-    "\\iint": "∬",
-    "\\iiint": "∭",
-    "\\oint": "∮",
+    "\\iint": "∫∫",
+    "\\iiint": "∫∫∫",
+    "\\oint": "∫",
     "\\Delta": "Delta",
     "\\sen": "sen ",
     "\\sin": "sen ",
@@ -91,6 +96,56 @@ export function latexToPlainText(value: string) {
   text = text.replace(/\\[a-zA-Z]+/g, "");
 
   return sanitizeForPdf(text);
+}
+
+/**
+ * Convierte `\\int_a^b` en un marcador `∫[a|b]` que el renderizador de PDF
+ * interpreta para dibujar el límite inferior debajo y el superior encima del
+ * signo. Se aceptan límites con y sin llaves, en cualquiera de los dos
+ * órdenes en que aparezcan en el LaTeX.
+ */
+function convertIntegralLimits(text: string): string {
+  const apply = (
+    pattern: RegExp,
+    build: (...groups: string[]) => string,
+  ) => {
+    text = text.replace(pattern, (match, ...args: unknown[]) => {
+      // El último argumento de `replace` es el texto completo, no un grupo.
+      const groups = args.slice(0, -2).filter(
+        (value): value is string => typeof value === "string",
+      );
+      return build(...groups);
+    });
+  };
+
+  // Con llaves en ambos límites.
+  apply(/\\int\s*_\{([^{}]*)\}\s*\^\{([^{}]*)\}/g, (lower, upper) =>
+    `∫[${lower}|${upper}]`,
+  );
+  apply(/\\int\s*\^\{([^{}]*)\}\s*_\{([^{}]*)\}/g, (upper, lower) =>
+    `∫[${lower}|${upper}]`,
+  );
+
+  // Con llaves en un solo límite.
+  apply(/\\int\s*_\{([^{}]*)\}/g, (lower) => `∫[${lower}|]`);
+  apply(/\\int\s*\^\{([^{}]*)\}/g, (upper) => `∫[|${upper}]`);
+
+  // Mixtos: inferior sin llaves y superior con llaves, o al revés.
+  apply(/\\int\s*_\s*(\w)\s*\^\{([^{}]*)\}/g, (lower, upper) =>
+    `∫[${lower}|${upper}]`,
+  );
+  apply(/\\int\s*_\{([^{}]*)\}\s*\^\s*(\w)/g, (lower, upper) =>
+    `∫[${lower}|${upper}]`,
+  );
+
+  // Sin llaves (un solo carácter por límite).
+  apply(/\\int\s*_\s*(\w)\s*\^\s*(\w)/g, (lower, upper) =>
+    `∫[${lower}|${upper}]`,
+  );
+  apply(/\\int\s*_\s*(\w)/g, (lower) => `∫[${lower}|]`);
+  apply(/\\int\s*\^\s*(\w)/g, (upper) => `∫[|${upper}]`);
+
+  return text;
 }
 
 /**
@@ -153,7 +208,6 @@ function sanitizeForPdf(value: string) {
     "\u03b1": "alfa",
     "\u03b2": "beta",
     "\u0394": "Delta",
-    "\u221a": "raíz",
     "\u2248": "~",
     "\u00b0": "°",
   };
@@ -166,7 +220,7 @@ function sanitizeForPdf(value: string) {
 
   // Estos símbolos no pertenecen a WinAnsi, pero se mantienen para que el
   // generador de PDF pueda dibujarlos con la fuente Symbol.
-  const pdfSymbols = new Set(["∫", "∬", "∭", "∮"]);
+  const pdfSymbols = new Set(["∫", "√"]);
 
   let output = "";
 
