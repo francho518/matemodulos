@@ -18,7 +18,8 @@ export function latexToPlainText(value: string) {
   text = replaceCommandWithArgument(text, "mathrm", (arg) => arg);
   text = replaceCommandWithArgument(text, "text", (arg) => arg);
   text = replaceCommandWithArgument(text, "textbf", (arg) => arg);
-  text = replaceCommandWithArgument(text, "sqrt", (arg) => `√(${arg})`);
+  // «» delimitan el radicando: el PDF dibuja la raya superior sobre él.
+  text = replaceCommandWithArgument(text, "sqrt", (arg) => `√«${arg}»`);
   text = replaceCommandWithArgument(text, "frac", null, (numerator, denominator) => {
     return `(${numerator})/(${denominator})`;
   });

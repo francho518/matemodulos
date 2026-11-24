@@ -84,14 +84,24 @@ async function embedHeaderLogo(pdf: PDFDocument): Promise<PDFImage | null> {
 }
 
 const PDF_SYMBOLS = new Set(["∫", "√"]);
-// Marcador emitido por latexToPlainText para integrales definidas.
-const INTEGRAL_TOKEN = /∫\[([^\]|]*)\|([^\]]*)\]/g;
+// Marcadores emitidos por latexToPlainText: ∫[inferior|superior] y √«radicando».
+const MATH_TOKEN = /∫\[([^\]|]*)\|([^\]]*)\]|√«([^»]*)»/g;
 const SYMBOL_SPLIT = /(∫|√)/g;
+
+// Proporciones tipográficas de los símbolos compuestos.
+const INTEGRAL_GLYPH_RATIO = 1.25;
+const LIMIT_SIZE_RATIO = 0.6;
+const RADICAL_GLYPH_RATIO = 1.2;
+// Los límites van a la derecha del signo (notación inline), así que no
+// hace falta reservar altura extra: caben dentro del interlineado normal.
+const INTEGRAL_EXTRA_ABOVE = 0;
+const INTEGRAL_EXTRA_BELOW = 0;
 
 type TextSegment =
   | { kind: "text"; text: string }
   | { kind: "symbol"; text: string }
-  | { kind: "integral"; lower: string; upper: string };
+  | { kind: "integral"; lower: string; upper: string }
+  | { kind: "radical"; radicand: string };
 
 function splitSymbols(text: string): TextSegment[] {
   return text
@@ -104,10 +114,10 @@ function splitSymbols(text: string): TextSegment[] {
     );
 }
 
-/** Divide una línea en texto, símbolos e integrales con límites. */
+/** Divide una línea en texto, símbolos, integrales y raíces. */
 function tokenize(text: string): TextSegment[] {
   const segments: TextSegment[] = [];
-  const pattern = new RegExp(INTEGRAL_TOKEN.source, "g");
+  const pattern = new RegExp(MATH_TOKEN.source, "g");
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -116,11 +126,16 @@ function tokenize(text: string): TextSegment[] {
       segments.push(...splitSymbols(text.slice(lastIndex, match.index)));
     }
 
-    segments.push({
-      kind: "integral",
-      lower: match[1],
-      upper: match[2],
-    });
+    if (match[3] !== undefined) {
+      segments.push({ kind: "radical", radicand: match[3] });
+    } else {
+      segments.push({
+        kind: "integral",
+        lower: match[1],
+        upper: match[2],
+      });
+    }
+
     lastIndex = match.index + match[0].length;
   }
 
@@ -131,8 +146,24 @@ function tokenize(text: string): TextSegment[] {
   return segments.length > 0 ? segments : [{ kind: "text", text }];
 }
 
-/** Tamaño de los límites respecto al signo de integral. */
-const LIMIT_SIZE_RATIO = 0.62;
+function hasIntegral(text: string): boolean {
+  return /∫\[[^\]]*\]/.test(text);
+}
+
+function extraAbove(text: string): number {
+  return hasIntegral(text) ? INTEGRAL_EXTRA_ABOVE : 0;
+}
+
+function advanceFor(text: string, base: number): number {
+  return hasIntegral(text) ? base + INTEGRAL_EXTRA_BELOW : base;
+}
+
+function linesHeight(lines: string[], base: number): number {
+  return lines.reduce(
+    (total, line) => total + extraAbove(line) + advanceFor(line, base),
+    0,
+  );
+}
 
 function segmentWidth(
   segment: TextSegment,
@@ -142,10 +173,22 @@ function segmentWidth(
 ): number {
   if (segment.kind === "integral") {
     const limitSize = size * LIMIT_SIZE_RATIO;
-    const glyphWidth = symbolFont.widthOfTextAtSize("∫", size);
+    const glyphWidth = symbolFont.widthOfTextAtSize(
+      "∫",
+      size * INTEGRAL_GLYPH_RATIO,
+    );
     const lowerWidth = font.widthOfTextAtSize(segment.lower, limitSize);
     const upperWidth = font.widthOfTextAtSize(segment.upper, limitSize);
-    return Math.max(glyphWidth, lowerWidth, upperWidth) + 2;
+    return glyphWidth + 1.5 + Math.max(lowerWidth, upperWidth);
+  }
+
+  if (segment.kind === "radical") {
+    const glyphWidth = symbolFont.widthOfTextAtSize(
+      "√",
+      size * RADICAL_GLYPH_RATIO,
+    );
+    const innerWidth = font.widthOfTextAtSize(segment.radicand, size);
+    return glyphWidth + 1 + innerWidth + 1;
   }
 
   const usedFont = segment.kind === "symbol" ? symbolFont : font;
@@ -228,8 +271,9 @@ export async function buildPracticeSheetsPdf(
 
   /**
    * Dibuja una línea alternando entre la fuente normal y Symbol. Las
-   * integrales definidas se dibujan como un bloque: el signo y, centrados
-   * sobre él, el límite superior arriba y el inferior abajo.
+   * integrales definidas se componen con el signo ampliado y los límites
+   * por encima y por debajo, sin solape. Las raíces llevan una raya sobre
+   * todo el radicando.
    */
   const drawMixedText = (
     currentPage: PDFPage,
@@ -246,8 +290,9 @@ export async function buildPracticeSheetsPdf(
 
     for (const segment of tokenize(text)) {
       if (segment.kind === "integral") {
+        const glyphSize = options.size * INTEGRAL_GLYPH_RATIO;
         const limitSize = options.size * LIMIT_SIZE_RATIO;
-        const glyphWidth = symbol.widthOfTextAtSize("∫", options.size);
+        const glyphWidth = symbol.widthOfTextAtSize("∫", glyphSize);
         const lowerWidth = options.font.widthOfTextAtSize(
           segment.lower,
           limitSize,
@@ -256,20 +301,24 @@ export async function buildPracticeSheetsPdf(
           segment.upper,
           limitSize,
         );
-        const blockWidth = Math.max(glyphWidth, lowerWidth, upperWidth) + 2;
+        const blockWidth = glyphWidth + 1.5 + Math.max(lowerWidth, upperWidth);
 
+        // Signo y límites se dibujan en columnas separadas: así el trazo de
+        // la integral nunca queda tapado por el límite superior o inferior.
         currentPage.drawText("∫", {
-          x: cursor + (blockWidth - glyphWidth) / 2,
+          x: cursor,
           y: options.y,
-          size: options.size,
+          size: glyphSize,
           font: symbol,
           color: options.color,
         });
 
+        const limitsX = cursor + glyphWidth + 1.5;
+
         if (segment.upper) {
           currentPage.drawText(segment.upper, {
-            x: cursor + (blockWidth - upperWidth) / 2,
-            y: options.y + options.size * 0.62,
+            x: limitsX + (Math.max(lowerWidth, upperWidth) - upperWidth) / 2,
+            y: options.y + 6.5,
             size: limitSize,
             font: options.font,
             color: options.color,
@@ -278,8 +327,8 @@ export async function buildPracticeSheetsPdf(
 
         if (segment.lower) {
           currentPage.drawText(segment.lower, {
-            x: cursor + (blockWidth - lowerWidth) / 2,
-            y: options.y - options.size * 0.33,
+            x: limitsX + (Math.max(lowerWidth, upperWidth) - lowerWidth) / 2,
+            y: options.y - 4.5,
             size: limitSize,
             font: options.font,
             color: options.color,
@@ -287,6 +336,43 @@ export async function buildPracticeSheetsPdf(
         }
 
         cursor += blockWidth;
+        continue;
+      }
+
+      if (segment.kind === "radical") {
+        const glyphSize = options.size * RADICAL_GLYPH_RATIO;
+        const glyphWidth = symbol.widthOfTextAtSize("√", glyphSize);
+        const innerWidth = options.font.widthOfTextAtSize(
+          segment.radicand,
+          options.size,
+        );
+        const innerX = cursor + glyphWidth + 1;
+
+        currentPage.drawText("√", {
+          x: cursor,
+          y: options.y,
+          size: glyphSize,
+          font: symbol,
+          color: options.color,
+        });
+
+        currentPage.drawText(segment.radicand, {
+          x: innerX,
+          y: options.y,
+          size: options.size,
+          font: options.font,
+          color: options.color,
+        });
+
+        const barY = options.y + options.size * 0.8;
+        currentPage.drawLine({
+          start: { x: innerX - 0.5, y: barY },
+          end: { x: innerX + innerWidth + 0.5, y: barY },
+          thickness: 0.7,
+          color: options.color,
+        });
+
+        cursor += glyphWidth + 1 + innerWidth + 1;
         continue;
       }
 
@@ -394,7 +480,10 @@ export async function buildPracticeSheetsPdf(
     );
 
     for (const line of lines) {
-      ensureSpace(lineHeight);
+      const above = extraAbove(line);
+      const step = advanceFor(line, lineHeight);
+      ensureSpace(above + step + 2);
+      y -= above;
       drawMixedText(page, line, {
         x: MARGIN_X + indent,
         y,
@@ -402,7 +491,7 @@ export async function buildPracticeSheetsPdf(
         font,
         color,
       });
-      y -= lineHeight;
+      y -= step;
     }
   };
 
@@ -430,7 +519,10 @@ export async function buildPracticeSheetsPdf(
     );
 
     lines.forEach((line, index) => {
-      ensureSpace(LINE_HEIGHT);
+      const above = extraAbove(line);
+      const step = advanceFor(line, LINE_HEIGHT);
+      ensureSpace(above + step + 2);
+      y -= above;
 
       if (index === 0) {
         page.drawText("•", {
@@ -449,7 +541,7 @@ export async function buildPracticeSheetsPdf(
         font: regular,
         color: rgb(0.13, 0.13, 0.13),
       });
-      y -= LINE_HEIGHT;
+      y -= step;
     });
   };
 
@@ -528,18 +620,27 @@ export async function buildPracticeSheetsPdf(
           )
         : [];
 
-      const options =
+      const optionLines =
         exercise.type === "multiple_choice" && exercise.options
           ? exercise.options.map((option, optionIndex) => {
               const letter = String.fromCharCode(97 + optionIndex);
-              return `${letter}) ${latexToPlainText(option)}`;
+              return wrapText(
+                `${letter}) ${latexToPlainText(option)}`,
+                regular,
+                symbol,
+                BODY_SIZE,
+                CONTENT_WIDTH - numberWidth - 14,
+              );
             })
           : [];
 
       const requiredHeight =
-        tagLines.length * (LINE_HEIGHT - 4) +
-        Math.max(promptLines.length, 1) * LINE_HEIGHT +
-        options.length * LINE_HEIGHT +
+        linesHeight(tagLines, LINE_HEIGHT - 4) +
+        Math.max(linesHeight(promptLines, LINE_HEIGHT), LINE_HEIGHT) +
+        optionLines.reduce(
+          (total, lines) => total + linesHeight(lines, LINE_HEIGHT),
+          0,
+        ) +
         LINE_HEIGHT +
         14;
 
@@ -554,6 +655,9 @@ export async function buildPracticeSheetsPdf(
       });
 
       tagLines.forEach((line) => {
+        const above = extraAbove(line);
+        const step = advanceFor(line, LINE_HEIGHT - 4);
+        y -= above;
         drawMixedText(page, line, {
           x: MARGIN_X + numberWidth,
           y,
@@ -561,10 +665,14 @@ export async function buildPracticeSheetsPdf(
           font: bold,
           color: BRAND_TEAL,
         });
-        y -= LINE_HEIGHT - 4;
+        y -= step;
       });
 
       promptLines.forEach((line) => {
+        const above = extraAbove(line);
+        const step = advanceFor(line, LINE_HEIGHT);
+        ensureSpace(above + step + 2);
+        y -= above;
         drawMixedText(page, line, {
           x: MARGIN_X + numberWidth,
           y,
@@ -572,20 +680,15 @@ export async function buildPracticeSheetsPdf(
           font: regular,
           color: rgb(0.13, 0.13, 0.13),
         });
-        y -= LINE_HEIGHT;
+        y -= step;
       });
 
-      options.forEach((option) => {
-        const optionLines = wrapText(
-          option,
-          regular,
-          symbol,
-          BODY_SIZE,
-          CONTENT_WIDTH - numberWidth - 14,
-        );
-
-        optionLines.forEach((line) => {
-          ensureSpace(LINE_HEIGHT);
+      optionLines.forEach((lines) => {
+        lines.forEach((line) => {
+          const above = extraAbove(line);
+          const step = advanceFor(line, LINE_HEIGHT);
+          ensureSpace(above + step + 2);
+          y -= above;
           drawMixedText(page, line, {
             x: MARGIN_X + numberWidth + 14,
             y,
@@ -593,7 +696,7 @@ export async function buildPracticeSheetsPdf(
             font: regular,
             color: GRAY,
           });
-          y -= LINE_HEIGHT;
+          y -= step;
         });
       });
 
