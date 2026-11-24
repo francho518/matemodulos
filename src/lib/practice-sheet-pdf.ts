@@ -83,9 +83,36 @@ async function embedHeaderLogo(pdf: PDFDocument): Promise<PDFImage | null> {
   }
 }
 
+const PDF_SYMBOLS = new Set(["∫", "∬", "∭", "∮"]);
+const SYMBOL_SPLIT = /([\u222b\u222c\u222d\u222e])/g;
+
+function splitForSymbols(text: string): string[] {
+  return text.split(SYMBOL_SPLIT).filter(Boolean);
+}
+
+function isSymbol(part: string): boolean {
+  return PDF_SYMBOLS.has(part);
+}
+
+/** Ancho real de una línea que puede mezclar Helvetica y Symbol. */
+function mixedWidth(
+  text: string,
+  font: PDFFont,
+  symbolFont: PDFFont,
+  size: number,
+): number {
+  return splitForSymbols(text).reduce(
+    (total, part) =>
+      total +
+      (isSymbol(part) ? symbolFont : font).widthOfTextAtSize(part, size),
+    0,
+  );
+}
+
 function wrapText(
   text: string,
   font: PDFFont,
+  symbolFont: PDFFont,
   size: number,
   maxWidth: number,
 ): string[] {
@@ -96,7 +123,7 @@ function wrapText(
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
 
-    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+    if (mixedWidth(candidate, font, symbolFont, size) <= maxWidth) {
       current = candidate;
       continue;
     }
@@ -104,11 +131,11 @@ function wrapText(
     if (current) lines.push(current);
 
     // Una palabra más larga que el ancho disponible se parte por caracteres.
-    if (font.widthOfTextAtSize(word, size) > maxWidth) {
+    if (mixedWidth(word, font, symbolFont, size) > maxWidth) {
       let chunk = "";
 
       for (const character of word) {
-        if (font.widthOfTextAtSize(chunk + character, size) > maxWidth) {
+        if (mixedWidth(chunk + character, font, symbolFont, size) > maxWidth) {
           if (chunk) lines.push(chunk);
           chunk = character;
         } else {
@@ -139,7 +166,36 @@ export async function buildPracticeSheetsPdf(
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  // Helvetica no incluye los signos de integral; Symbol sí.
+  const symbol = await pdf.embedFont(StandardFonts.Symbol);
   const logo = await embedHeaderLogo(pdf);
+
+  /** Dibuja una línea alternando entre la fuente normal y Symbol. */
+  const drawMixedText = (
+    currentPage: PDFPage,
+    text: string,
+    options: {
+      x: number;
+      y: number;
+      size: number;
+      font: PDFFont;
+      color: ReturnType<typeof rgb>;
+    },
+  ) => {
+    let cursor = options.x;
+
+    for (const part of splitForSymbols(text)) {
+      const font = isSymbol(part) ? symbol : options.font;
+      currentPage.drawText(part, {
+        x: cursor,
+        y: options.y,
+        size: options.size,
+        font,
+        color: options.color,
+      });
+      cursor += font.widthOfTextAtSize(part, options.size);
+    }
+  };
 
   const pageLabels = new Map<PDFPage, string>();
   let currentLabel = "Guía de práctica";
@@ -224,11 +280,17 @@ export async function buildPracticeSheetsPdf(
     const indent = options.indent ?? 0;
     const color = options.color ?? rgb(0.13, 0.13, 0.13);
 
-    const lines = wrapText(text, font, size, CONTENT_WIDTH - indent);
+    const lines = wrapText(
+      text,
+      font,
+      symbol,
+      size,
+      CONTENT_WIDTH - indent,
+    );
 
     for (const line of lines) {
       ensureSpace(lineHeight);
-      page.drawText(line, {
+      drawMixedText(page, line, {
         x: MARGIN_X + indent,
         y,
         size,
@@ -242,7 +304,7 @@ export async function buildPracticeSheetsPdf(
   const drawSectionHeading = (text: string) => {
     y -= SECTION_GAP;
     ensureSpace(HEADING_SIZE + 4);
-    page.drawText(text, {
+    drawMixedText(page, text, {
       x: MARGIN_X,
       y,
       size: HEADING_SIZE,
@@ -254,7 +316,13 @@ export async function buildPracticeSheetsPdf(
 
   const drawBullet = (text: string) => {
     const bulletIndent = 14;
-    const lines = wrapText(text, regular, BODY_SIZE, CONTENT_WIDTH - bulletIndent);
+    const lines = wrapText(
+      text,
+      regular,
+      symbol,
+      BODY_SIZE,
+      CONTENT_WIDTH - bulletIndent,
+    );
 
     lines.forEach((line, index) => {
       ensureSpace(LINE_HEIGHT);
@@ -269,7 +337,7 @@ export async function buildPracticeSheetsPdf(
         });
       }
 
-      page.drawText(line, {
+      drawMixedText(page, line, {
         x: MARGIN_X + bulletIndent,
         y,
         size: BODY_SIZE,
@@ -341,6 +409,7 @@ export async function buildPracticeSheetsPdf(
       const promptLines = wrapText(
         prompt,
         regular,
+        symbol,
         BODY_SIZE,
         CONTENT_WIDTH - numberWidth,
       );
@@ -348,6 +417,7 @@ export async function buildPracticeSheetsPdf(
         ? wrapText(
             latexToPlainText(exercise.tag),
             bold,
+            symbol,
             9,
             CONTENT_WIDTH - numberWidth,
           )
@@ -379,7 +449,7 @@ export async function buildPracticeSheetsPdf(
       });
 
       tagLines.forEach((line) => {
-        page.drawText(line, {
+        drawMixedText(page, line, {
           x: MARGIN_X + numberWidth,
           y,
           size: 9,
@@ -390,7 +460,7 @@ export async function buildPracticeSheetsPdf(
       });
 
       promptLines.forEach((line) => {
-        page.drawText(line, {
+        drawMixedText(page, line, {
           x: MARGIN_X + numberWidth,
           y,
           size: BODY_SIZE,
@@ -404,13 +474,14 @@ export async function buildPracticeSheetsPdf(
         const optionLines = wrapText(
           option,
           regular,
+          symbol,
           BODY_SIZE,
           CONTENT_WIDTH - numberWidth - 14,
         );
 
         optionLines.forEach((line) => {
           ensureSpace(LINE_HEIGHT);
-          page.drawText(line, {
+          drawMixedText(page, line, {
             x: MARGIN_X + numberWidth + 14,
             y,
             size: BODY_SIZE,
@@ -443,7 +514,7 @@ export async function buildPracticeSheetsPdf(
         // Línea para escribir la respuesta.
         y -= 2;
         ensureSpace(LINE_HEIGHT);
-        page.drawText("Respuesta: ______________________________________________", {
+        drawMixedText(page, "Respuesta: ______________________________________________", {
           x: MARGIN_X + numberWidth,
           y,
           size: BODY_SIZE,

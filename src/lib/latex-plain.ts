@@ -52,6 +52,12 @@ export function latexToPlainText(value: string) {
     "\\pi": "pi",
     "\\angle": "ángulo",
     "\\infty": "infinito",
+    // Se conservan como caracteres Unicode y el PDF los dibuja con la
+    // fuente Symbol, que sí tiene estos glifos (Helvetica no los tiene).
+    "\\int": "∫",
+    "\\iint": "∬",
+    "\\iiint": "∭",
+    "\\oint": "∮",
     "\\Delta": "Delta",
     "\\sen": "sen ",
     "\\sin": "sen ",
@@ -158,6 +164,10 @@ function sanitizeForPdf(value: string) {
     text = text.split(from).join(to);
   }
 
+  // Estos símbolos no pertenecen a WinAnsi, pero se mantienen para que el
+  // generador de PDF pueda dibujarlos con la fuente Symbol.
+  const pdfSymbols = new Set(["∫", "∬", "∭", "∮"]);
+
   let output = "";
 
   for (const character of text) {
@@ -165,6 +175,8 @@ function sanitizeForPdf(value: string) {
 
     if (character === "\n" || character === "\t") {
       output += " ";
+    } else if (pdfSymbols.has(character)) {
+      output += character;
     } else if (code < 128 || (code >= 160 && code <= 255)) {
       output += character;
     } else if (character === "\u00a0") {
