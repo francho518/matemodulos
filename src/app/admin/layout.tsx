@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { AdminNav } from "@/components/admin/admin-nav";
 
 export default async function AdminLayout({
   children,
@@ -56,32 +57,7 @@ export default async function AdminLayout({
         </Link>
       </div>
 
-      <nav className="mt-6 flex gap-1 border-b border-slate-200">
-        <Link
-          href="/admin"
-          className="border-b-2 border-indigo-600 px-4 py-2 text-sm font-semibold text-indigo-600"
-        >
-          Módulos
-        </Link>
-        <Link
-          href="/admin/modules/new"
-          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-500 transition hover:text-slate-800"
-        >
-          Nuevo módulo
-        </Link>
-        <Link
-          href="/admin/groups"
-          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-500 transition hover:text-slate-800"
-        >
-          Grupos
-        </Link>
-        <Link
-          href="/admin/users"
-          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-500 transition hover:text-slate-800"
-        >
-          Usuarios
-        </Link>
-      </nav>
+      <AdminNav />
 
       <div className="mt-8">{children}</div>
     </div>

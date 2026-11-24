@@ -36,6 +36,9 @@ Stack 100 % gratuito para empezar:
 - **Guía de práctica en PDF**: antes de comenzar un módulo, el estudiante puede
   descargar la misma cantidad de ejercicios que verá, pero de otra selección del
   banco, con formato de documento académico.
+- **Evaluaciones PDF** desde administración: selección de módulos o grupos,
+  cantidad de ejercicios por prueba, varias versiones en un mismo PDF y
+  solucionario descargable por separado, con el mismo formato de las guías.
 - **Exportación de notas** de un grupo en CSV compatible con Excel (nota de 0 a
   10, puntaje y porcentaje).
 - **Reasignaciones**: cuando un estudiante termina un módulo, el docente puede
@@ -297,6 +300,28 @@ Antes de usar estas acciones en una base ya creada, ejecuta
 [`supabase/migration-user-baja.sql`](supabase/migration-user-baja.sql) en el SQL
 Editor. El archivo `supabase/schema.sql` ya incluye estos cambios para bases
 nuevas.
+
+### Crear evaluaciones en PDF
+
+En **Administración → Evaluaciones** se genera un PDF con el mismo formato de
+las guías de práctica (cintillo, secciones, ejercicios numerados y espacio para
+responder). El formulario permite:
+
+- **Por módulo:** marcar uno o varios módulos. Los ejercicios se reparten entre
+  ellos y cada versión lleva el nombre del módulo sobre cada enunciado.
+- **Por grupo:** marcar uno o varios grupos. Se genera un PDF por grupo con los
+  módulos que ya tenga asignados.
+- **Ejercicios por prueba:** cantidad total de ejercicios en cada versión.
+- **Versiones diferentes:** cuántas pruebas distintas se incluyen en el mismo
+  PDF (se etiquetan A, B, C…). La selección es determinista, así que volver a
+  descargar el enlace produce exactamente el mismo PDF.
+- **Solucionario opcional:** crea un segundo PDF con respuestas y explicaciones,
+  también con el formato de la guía.
+
+El formulario no genera el archivo directamente: devuelve enlaces de descarga.
+Eso permite entregar un PDF por grupo y volver a descargarlos cuando se necesite.
+Si el banco de un módulo (o el conjunto de módulos de un grupo) no tiene
+suficientes ejercicios, el panel avisa en lugar de entregar una prueba incompleta.
 
 ---
 

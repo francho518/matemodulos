@@ -35,6 +35,19 @@ function mulberry32(seed: number) {
   };
 }
 
+/** Mezcla determinista de ejercicios, reutilizable por guías y evaluaciones. */
+export function shuffleWithSeed<T>(items: T[], seed: string): T[] {
+  const random = mulberry32(hashString(seed));
+  const shuffled = [...items];
+
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  return shuffled;
+}
+
 /**
  * Devuelve la selección de ejercicios que verá un estudiante.
  *
@@ -64,13 +77,7 @@ export function selectExercisesForStudent<T extends SelectableExercise>(
     return limit > 0 ? ordered.slice(0, limit) : ordered;
   }
 
-  const random = mulberry32(hashString(`v1:${userId}:${moduleId}`));
-  const shuffled = [...ordered];
-
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
+  const shuffled = shuffleWithSeed(ordered, `v1:${userId}:${moduleId}`);
 
   return limit > 0 ? shuffled.slice(0, limit) : shuffled;
 }
@@ -114,17 +121,8 @@ export function selectExercisesForRound<T extends SelectableExercise>(
   const unseen = ordered.filter((exercise) => !previous.has(exercise.id));
   const seen = ordered.filter((exercise) => previous.has(exercise.id));
 
-  const shuffle = (items: T[], salt: string) => {
-    const random = mulberry32(hashString(`${salt}:${userId}:${moduleId}:${round}`));
-    const copy = [...items];
-
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-
-    return copy;
-  };
+  const shuffle = (items: T[], salt: string) =>
+    shuffleWithSeed(items, `${salt}:${userId}:${moduleId}:${round}`);
 
   const pool = [...shuffle(unseen, "nuevos"), ...shuffle(seen, "repaso")];
 
@@ -153,15 +151,10 @@ export function selectPracticeExercises<T extends SelectableExercise>(
 
   if (available.length === 0 || count <= 0) return [];
 
-  const random = mulberry32(
-    hashString(`guia:${userId}:${moduleId}:${round}`),
+  const shuffled = shuffleWithSeed(
+    available,
+    `guia:${userId}:${moduleId}:${round}`,
   );
-  const shuffled = [...available];
-
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
 
   return shuffled
     .slice(0, Math.floor(count))

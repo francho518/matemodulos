@@ -3,6 +3,7 @@ import Image from "next/image";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { logout } from "@/app/(auth)/actions";
+import { SiteNavLinks } from "@/components/site-nav-links";
 
 export async function SiteHeader() {
   let user: User | null = null;
@@ -54,61 +55,18 @@ export async function SiteHeader() {
         </Link>
 
         <nav className="flex items-center gap-1 text-sm sm:gap-2">
-          <Link
-            href="/"
-            className="hidden rounded-lg px-3 py-2 font-semibold text-brand-orange transition hover:bg-orange-50 sm:inline-flex"
-          >
-            Inicio
-          </Link>
+          <SiteNavLinks
+            isAuthenticated={Boolean(user)}
+            role={role}
+            fullName={fullName}
+          />
 
-          {user ? (
-            <>
-              <Link
-                href="/dashboard"
-                className="rounded-lg px-3 py-2 font-medium text-slate-600 transition hover:bg-slate-100 hover:text-brand-navy"
-              >
-                Mis módulos
-              </Link>
-
-              {role === "admin" && (
-                <Link
-                  href="/admin"
-                  className="rounded-lg px-3 py-2 font-medium text-slate-600 transition hover:bg-slate-100 hover:text-brand-navy"
-                >
-                  Administración
-                </Link>
-              )}
-
-              <span className="hidden max-w-[10rem] truncate px-2 text-slate-400 lg:inline">
-                {fullName}
-              </span>
-
-              <form action={logout}>
-                <button type="submit" className="btn-secondary">
-                  Salir
-                </button>
-              </form>
-            </>
-          ) : (
-            <>
-              <Link
-                href="/#como-funciona"
-                className="hidden rounded-lg px-3 py-2 font-medium text-slate-600 transition hover:bg-slate-100 hover:text-brand-navy md:inline-flex"
-              >
-                Cómo funciona
-              </Link>
-
-              <Link
-                href="/login"
-                className="hidden rounded-lg px-3 py-2 font-medium text-slate-600 transition hover:bg-slate-100 hover:text-brand-navy sm:inline-flex"
-              >
-                Ingresar
-              </Link>
-
-              <Link href="/register" className="btn-brand">
-                Crear cuenta
-              </Link>
-            </>
+          {user && (
+            <form action={logout}>
+              <button type="submit" className="btn-secondary">
+                Salir
+              </button>
+            </form>
           )}
         </nav>
       </div>

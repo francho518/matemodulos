@@ -14,6 +14,11 @@ export type PracticeSheetExercise = {
   prompt: string;
   type: "multiple_choice" | "numeric";
   options: string[] | null;
+  /** Etiqueta corta que se muestra sobre el enunciado (por ejemplo, el módulo). */
+  tag?: string | null;
+  /** Solo se usa en el solucionario. */
+  answer?: string | null;
+  explanation?: string | null;
 };
 
 export type PracticeSheetInput = {
@@ -21,6 +26,17 @@ export type PracticeSheetInput = {
   moduleDescription: string | null;
   studentName: string | null;
   exercises: PracticeSheetExercise[];
+  /** Texto del cintillo superior. Por defecto, "Guía de práctica". */
+  documentLabel?: string;
+  title?: string;
+  metaLine?: string | null;
+  objective?: string | null;
+  instructions?: string[] | null;
+  exerciseHeading?: string;
+  /** Dibuja respuestas y explicaciones en lugar de la línea en blanco. */
+  solutionMode?: boolean;
+  /** Cada bloque empieza en una página nueva (por defecto, sí). */
+  startNewPage?: boolean;
 };
 
 const PAGE_WIDTH = 595.28; // A4
@@ -37,7 +53,6 @@ const HEADING_SIZE = 11.5;
 const BODY_SIZE = 10.5;
 const LINE_HEIGHT = 16;
 const SECTION_GAP = 20;
-const PARAGRAPH_GAP = 10;
 
 // Tres líneas en blanco entre un ejercicio y el siguiente.
 const EXERCISE_GAP = LINE_HEIGHT * 3;
@@ -113,22 +128,26 @@ function wrapText(
 }
 
 /**
- * Genera el PDF de la guía de práctica con el mismo estilo de documento
- * académico del formato de referencia: título, secciones y ejercicios
- * numerados con espacio para resolver.
+ * Genera un PDF con uno o varios bloques (guías, evaluaciones o solucionarios)
+ * usando siempre el mismo estilo académico. Los bloques pueden pertenecer a
+ * documentos distintos: el cintillo recuerda a qué versión corresponde cada
+ * página.
  */
-export async function buildPracticeSheetPdf({
-  moduleTitle,
-  moduleDescription,
-  studentName,
-  exercises,
-}: PracticeSheetInput): Promise<Uint8Array> {
+export async function buildPracticeSheetsPdf(
+  inputs: PracticeSheetInput[],
+): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const logo = await embedHeaderLogo(pdf);
 
-  const drawHeaderBand = (currentPage: PDFPage) => {
+  const pageLabels = new Map<PDFPage, string>();
+  let currentLabel = "Guía de práctica";
+  let page: PDFPage;
+  let y = 0;
+  let hasPage = false;
+
+  const drawHeaderBand = (currentPage: PDFPage, label: string) => {
     // Cintillo superior: logo a la izquierda y nombre de la plataforma
     // a la derecha, como en el documento de referencia.
     if (logo) {
@@ -161,9 +180,8 @@ export async function buildPracticeSheetPdf({
       color: BRAND_NAVY,
     });
 
-    const subtitle = "Guía de práctica";
-    const subtitleWidth = regular.widthOfTextAtSize(subtitle, 8);
-    currentPage.drawText(subtitle, {
+    const subtitleWidth = regular.widthOfTextAtSize(label, 8);
+    currentPage.drawText(label, {
       x: PAGE_WIDTH - MARGIN_X - subtitleWidth,
       y: PAGE_HEIGHT - 55,
       size: 8,
@@ -179,18 +197,15 @@ export async function buildPracticeSheetPdf({
     });
   };
 
-  const pages: PDFPage[] = [];
-  let page: PDFPage;
-  let y = 0;
-
   const startPage = () => {
     page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-    pages.push(page);
+    pageLabels.set(page, currentLabel);
     y = PAGE_HEIGHT - MARGIN_TOP;
+    hasPage = true;
   };
 
   const ensureSpace = (height: number) => {
-    if (y - height < MARGIN_BOTTOM) startPage();
+    if (!hasPage || y - height < MARGIN_BOTTOM) startPage();
   };
 
   const drawParagraph = (
@@ -265,136 +280,192 @@ export async function buildPracticeSheetPdf({
     });
   };
 
-  startPage();
+  for (const input of inputs) {
+    currentLabel = input.documentLabel ?? "Guía de práctica";
 
-  // Encabezado del documento, con el mismo estilo del formato adjunto.
-  drawParagraph(`Guía de práctica · ${moduleTitle}`, {
-    font: bold,
-    size: TITLE_SIZE,
-    lineHeight: 20,
-  });
+    if (!hasPage || input.startNewPage !== false) {
+      startPage();
+    } else {
+      y -= 10;
+    }
 
-  y -= 18;
+    const title =
+      input.title ?? `Guía de práctica · ${input.moduleTitle}`;
+    const description =
+      input.moduleDescription ??
+      `Ejercicios de preparación para el módulo ${input.moduleTitle}.`;
+    const metaLine =
+      input.metaLine ??
+      `Nombre: ${input.studentName ?? "________________________________"} · Fecha: ______________`;
+    const objective =
+      input.objective ??
+      `Practicar con ${input.exercises.length} ${
+        input.exercises.length === 1 ? "ejercicio" : "ejercicios"
+      } diferentes a los que te asignará el módulo, para llegar mejor preparado a la práctica en la plataforma.`;
+    const instructions = input.instructions ?? [
+      "Resuelve los ejercicios en el espacio disponible. Puedes usar calculadora, lápiz y tus apuntes.",
+      "Esta guía es solo para practicar: las respuestas no se entregan y no afectan tu nota.",
+      "Al ingresar al módulo, la plataforma te asignará otra selección de ejercicios parecida en cantidad.",
+    ];
 
-  drawParagraph(
-    moduleDescription ??
-      `Ejercicios de preparación para el módulo ${moduleTitle}.`,
-    { size: SUBTITLE_SIZE, color: GRAY, lineHeight: 17 },
-  );
-
-  y -= 26;
-
-  drawParagraph(
-    `Nombre: ${studentName ?? "________________________________"} · Fecha: ______________`,
-    { size: BODY_SIZE },
-  );
-
-  drawSectionHeading("Objetivo");
-  drawParagraph(
-    `Practicar con ${exercises.length} ${
-      exercises.length === 1 ? "ejercicio" : "ejercicios"
-    } diferentes a los que te asignará el módulo, para llegar mejor preparado a la práctica en la plataforma.`,
-  );
-
-  drawSectionHeading("Instrucciones");
-  drawBullet(
-    "Resuelve los ejercicios en el espacio disponible. Puedes usar calculadora, lápiz y tus apuntes.",
-  );
-  drawBullet(
-    "Esta guía es solo para practicar: las respuestas no se entregan y no afectan tu nota.",
-  );
-  drawBullet(
-    "Al ingresar al módulo, la plataforma te asignará otra selección de ejercicios parecida en cantidad.",
-  );
-
-  drawSectionHeading("Ejercicios");
-  y -= 6;
-
-  exercises.forEach((exercise, index) => {
-    const prompt = latexToPlainText(exercise.prompt);
-    const numberWidth = 22;
-    const promptLines = wrapText(
-      prompt,
-      regular,
-      BODY_SIZE,
-      CONTENT_WIDTH - numberWidth,
-    );
-
-    const options =
-      exercise.type === "multiple_choice" && exercise.options
-        ? exercise.options.map((option, optionIndex) => {
-            const letter = String.fromCharCode(97 + optionIndex);
-            return `${letter}) ${latexToPlainText(option)}`;
-          })
-        : [];
-
-    const requiredHeight =
-      Math.max(promptLines.length, 1) * LINE_HEIGHT +
-      options.length * LINE_HEIGHT +
-      LINE_HEIGHT +
-      14;
-
-    ensureSpace(requiredHeight);
-
-    page.drawText(`${index + 1}.`, {
-      x: MARGIN_X,
-      y,
-      size: BODY_SIZE,
+    drawParagraph(title, {
       font: bold,
-      color: rgb(0.1, 0.1, 0.1),
+      size: TITLE_SIZE,
+      lineHeight: 20,
     });
 
-    promptLines.forEach((line) => {
-      page.drawText(line, {
-        x: MARGIN_X + numberWidth,
-        y,
-        size: BODY_SIZE,
-        font: regular,
-        color: rgb(0.13, 0.13, 0.13),
-      });
-      y -= LINE_HEIGHT;
+    y -= 18;
+
+    drawParagraph(description, {
+      size: SUBTITLE_SIZE,
+      color: GRAY,
+      lineHeight: 17,
     });
 
-    options.forEach((option) => {
-      const optionLines = wrapText(
-        option,
+    y -= 26;
+
+    drawParagraph(metaLine, { size: BODY_SIZE });
+
+    drawSectionHeading("Objetivo");
+    drawParagraph(objective);
+
+    drawSectionHeading("Instrucciones");
+    instructions.forEach(drawBullet);
+
+    drawSectionHeading(input.exerciseHeading ?? "Ejercicios");
+    y -= 6;
+
+    input.exercises.forEach((exercise, index) => {
+      const prompt = latexToPlainText(exercise.prompt);
+      const numberWidth = 22;
+      const promptLines = wrapText(
+        prompt,
         regular,
         BODY_SIZE,
-        CONTENT_WIDTH - numberWidth - 14,
+        CONTENT_WIDTH - numberWidth,
       );
+      const tagLines = exercise.tag
+        ? wrapText(
+            latexToPlainText(exercise.tag),
+            bold,
+            9,
+            CONTENT_WIDTH - numberWidth,
+          )
+        : [];
 
-      optionLines.forEach((line) => {
-        ensureSpace(LINE_HEIGHT);
+      const options =
+        exercise.type === "multiple_choice" && exercise.options
+          ? exercise.options.map((option, optionIndex) => {
+              const letter = String.fromCharCode(97 + optionIndex);
+              return `${letter}) ${latexToPlainText(option)}`;
+            })
+          : [];
+
+      const requiredHeight =
+        tagLines.length * (LINE_HEIGHT - 4) +
+        Math.max(promptLines.length, 1) * LINE_HEIGHT +
+        options.length * LINE_HEIGHT +
+        LINE_HEIGHT +
+        14;
+
+      ensureSpace(requiredHeight);
+
+      page.drawText(`${index + 1}.`, {
+        x: MARGIN_X,
+        y,
+        size: BODY_SIZE,
+        font: bold,
+        color: rgb(0.1, 0.1, 0.1),
+      });
+
+      tagLines.forEach((line) => {
         page.drawText(line, {
-          x: MARGIN_X + numberWidth + 14,
+          x: MARGIN_X + numberWidth,
+          y,
+          size: 9,
+          font: bold,
+          color: BRAND_TEAL,
+        });
+        y -= LINE_HEIGHT - 4;
+      });
+
+      promptLines.forEach((line) => {
+        page.drawText(line, {
+          x: MARGIN_X + numberWidth,
           y,
           size: BODY_SIZE,
           font: regular,
-          color: GRAY,
+          color: rgb(0.13, 0.13, 0.13),
         });
         y -= LINE_HEIGHT;
       });
-    });
 
-    // Línea para escribir la respuesta.
-    y -= 2;
-    ensureSpace(LINE_HEIGHT);
-    page.drawText("Respuesta: ______________________________________________", {
-      x: MARGIN_X + numberWidth,
-      y,
-      size: BODY_SIZE,
-      font: regular,
-      color: LIGHT_GRAY,
+      options.forEach((option) => {
+        const optionLines = wrapText(
+          option,
+          regular,
+          BODY_SIZE,
+          CONTENT_WIDTH - numberWidth - 14,
+        );
+
+        optionLines.forEach((line) => {
+          ensureSpace(LINE_HEIGHT);
+          page.drawText(line, {
+            x: MARGIN_X + numberWidth + 14,
+            y,
+            size: BODY_SIZE,
+            font: regular,
+            color: GRAY,
+          });
+          y -= LINE_HEIGHT;
+        });
+      });
+
+      if (input.solutionMode) {
+        y -= 2;
+        drawParagraph(`Respuesta: ${exercise.answer ?? "—"}`, {
+          font: bold,
+          indent: numberWidth,
+          color: BRAND_TEAL,
+        });
+
+        if (exercise.explanation) {
+          drawParagraph(`Explicación: ${latexToPlainText(exercise.explanation)}`, {
+            indent: numberWidth,
+            size: BODY_SIZE - 0.5,
+            lineHeight: LINE_HEIGHT - 1,
+            color: GRAY,
+          });
+        }
+
+        y -= 8;
+      } else {
+        // Línea para escribir la respuesta.
+        y -= 2;
+        ensureSpace(LINE_HEIGHT);
+        page.drawText("Respuesta: ______________________________________________", {
+          x: MARGIN_X + numberWidth,
+          y,
+          size: BODY_SIZE,
+          font: regular,
+          color: LIGHT_GRAY,
+        });
+      }
+
+      y -= LINE_HEIGHT + EXERCISE_GAP;
     });
-    y -= LINE_HEIGHT + EXERCISE_GAP;
-  });
+  }
+
+  const allPages = pdf.getPages();
 
   // Cintillo superior en todas las páginas.
-  pages.forEach(drawHeaderBand);
+  allPages.forEach((currentPage) => {
+    drawHeaderBand(currentPage, pageLabels.get(currentPage) ?? "Guía de práctica");
+  });
 
   // Pie de página: -- 1 of N --, como en el documento de referencia.
-  pages.forEach((currentPage, index) => {
-    const label = `-- ${index + 1} of ${pages.length} --`;
+  allPages.forEach((currentPage, index) => {
+    const label = `-- ${index + 1} of ${allPages.length} --`;
     const width = regular.widthOfTextAtSize(label, 9);
 
     currentPage.drawText(label, {
@@ -407,4 +478,11 @@ export async function buildPracticeSheetPdf({
   });
 
   return pdf.save();
+}
+
+/** Compatibilidad con la guía de práctica existente. */
+export async function buildPracticeSheetPdf(
+  input: PracticeSheetInput,
+): Promise<Uint8Array> {
+  return buildPracticeSheetsPdf([input]);
 }
