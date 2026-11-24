@@ -91,7 +91,9 @@ const SYMBOL_SPLIT = /(∫|√)/g;
 // Proporciones tipográficas de los símbolos compuestos.
 const INTEGRAL_GLYPH_RATIO = 1.25;
 const LIMIT_SIZE_RATIO = 0.6;
-const RADICAL_GLYPH_RATIO = 1.2;
+const RADICAL_GLYPH_RATIO = 1.3;
+// La raya se sitúa a la altura en que termina el trazo ascendente del √.
+const RADICAL_BAR_RATIO = 0.78;
 // Los límites van a la derecha del signo (notación inline), así que no
 // hace falta reservar altura extra: caben dentro del interlineado normal.
 const INTEGRAL_EXTRA_ABOVE = 0;
@@ -188,7 +190,7 @@ function segmentWidth(
       size * RADICAL_GLYPH_RATIO,
     );
     const innerWidth = font.widthOfTextAtSize(segment.radicand, size);
-    return glyphWidth + 1 + innerWidth + 1;
+    return glyphWidth + 0.5 + innerWidth + 0.5;
   }
 
   const usedFont = segment.kind === "symbol" ? symbolFont : font;
@@ -346,7 +348,7 @@ export async function buildPracticeSheetsPdf(
           segment.radicand,
           options.size,
         );
-        const innerX = cursor + glyphWidth + 1;
+        const innerX = cursor + glyphWidth + 0.5;
 
         currentPage.drawText("√", {
           x: cursor,
@@ -364,15 +366,17 @@ export async function buildPracticeSheetsPdf(
           color: options.color,
         });
 
-        const barY = options.y + options.size * 0.8;
+        // La raya arranca donde termina el gancho del √ y cubre todo el
+        // radicando, con un pequeño remate a cada lado.
+        const barY = options.y + glyphSize * RADICAL_BAR_RATIO;
         currentPage.drawLine({
-          start: { x: innerX - 0.5, y: barY },
-          end: { x: innerX + innerWidth + 0.5, y: barY },
-          thickness: 0.7,
+          start: { x: cursor + glyphWidth - 0.3, y: barY },
+          end: { x: innerX + innerWidth + 0.4, y: barY },
+          thickness: 0.8,
           color: options.color,
         });
 
-        cursor += glyphWidth + 1 + innerWidth + 1;
+        cursor += glyphWidth + 0.5 + innerWidth + 0.5;
         continue;
       }
 
